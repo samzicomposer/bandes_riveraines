@@ -121,16 +121,16 @@ class PleiadesDataset(torch.utils.data.Dataset):
         if self.expand:
 
             for key, samp in self.samples.items():
-                if key in self.indices:
-                    random.shuffle(samp)
+                # if key in self.indices:
+                random.shuffle(samp)
 
-                    if len(samp)//self.views < 1:
-                        samples_list.append(random.choices(samp, k=self.views))
-                    else:
-                        for i in range(len(samp)//self.views):
-                            b = i*self.views
-                            # samples_list.append(random.sample(s, k=self.views))
-                            samples_list.append(samp[b:b+self.views])
+                # if len(samp)//self.views < 1:
+                samples_list.append(random.choices(samp, k=self.views))
+                # else:
+                #     for i in range(len(samp)//self.views):
+                #         b = i*self.views
+                #         # samples_list.append(random.sample(s, k=self.views))
+                #         samples_list.append(samp[b:b+self.views])
 
             self.samples = samples_list
 
@@ -169,8 +169,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
         image_stack = torch.stack(image_stack)
         return image_stack, iqbr  # return tuple with class index as 2nd member
 
-
-views = 10
+# views = 16
 batch_size = 512
 epochs = 15
 crop_size = 45
@@ -194,13 +193,14 @@ test_transforms = torchvision.transforms.Compose([
     torchvision.transforms.Normalize(mean=(means[0], means[1], means[2]), std=((stds[0], stds[1], stds[2])))
 ])
 
-temp_test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_7mdist/", views=1, transform=base_transforms, indices = None)
-test_indices = np.random.permutation(len(temp_test_dataset)).tolist()
-test_sampler = torch.utils.data.sampler.SubsetRandomSampler(test_indices)
-test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_7mdist/", views=views, transform=base_transforms, indices = test_sampler.indices, expand=True)
+# utilisé pour générer les indices, chaque indice est un segment de rive
+# temp_test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_34px/", views=1, transform=base_transforms, indices = None)
+# test_indices = np.random.permutation(len(temp_test_dataset)).tolist()
+# test_sampler = torch.utils.data.sampler.SubsetRandomSampler(test_indices)
+# test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_7mdist/", views=views, transform=base_transforms, indices = test_sampler.indices, expand=True)
 
-test_rsampler = torch.utils.data.sampler.RandomSampler(test_dataset)
-test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size, num_workers=0)
+# test_rsampler = torch.utils.data.sampler.RandomSampler(test_dataset)
+# test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size, num_workers=0)
 
 pre_model = torchvision.models.resnet18(pretrained=True)
 model = MVDCNN(pre_model, len(classes))
@@ -209,16 +209,53 @@ model = MVDCNN(pre_model, len(classes))
 ###### test du modèle ######
 
 checkpoints = [
-                # 'MVDCNN_2020-12-01-15_00_08' # L4
-                # 'MVDCNN_2020-12-03-08_09_59' # 15 epochs
-                #  'MVDCNN_2020-12-01-22_10_42', # 15 EPOCHS, 95-5, 55%, tres bien
-                # 'MVDCNN_2020-12-09-11_47_16' # 1.2 cl3, 99-1, 25
-               # 'MVDCNN_2020-12-01-15_39_19' # excellent pour 2 premiere classes 54%
-               'MVDCNN_2020-12-01-16_18_12' # excellente 4e classe, 95-5, arret à 12e epoch, tres bien!
-               #  'MVDCNN_2020-12-09-11_05_10' # Last epoch 25,1.1 pour cl3, 99-1, 53,8%
-               #  'MVDCNN_2020-12-11-15_11_38' # LAST EPOCH 20, 10 views
-               #  'MVDCNN_2020-11-27-23_09_24' # classifier 512
+                # 'MVDCNN_2020-12-01-15_00_08' # L4                                 16 views: 52, std = 0.94
+                # 'MVDCNN_2020-12-03-08_09_59' # 15 epochs                              51, 0.92
+                #  'MVDCNN_2020-12-01-22_10_42', # 15 EPOCHS, 95-5, 55%, tres bien       57, 0.899
+                # 'MVDCNN_2020-12-09-11_47_16' # 1.2 cl3, 99-1, 25                      54, 0.91
+               # 'MVDCNN_2020-12-01-15_39_19' # excellent pour 2 premiere classes 54%   57, 0.91
+               # 'MVDCNN_2020-12-01-16_18_12', # excellente 4e classe, 95-5, arret à 12e epoch     55, 0.935; classes centrale faible, les autres fortes
+                # 'MVDCNN_2020-12-09-11_05_10', # Last epoch 25,1.1 pour cl3, 99-1, 53,8%  54, 0.927
+               #  'MVDCNN_2020-12-11-15_11_38' # LAST EPOCH 20, 10 views                  53, 0.96
+               # 'MVDCNN_2020-12-04-16_33_17', # LAST EPOCH 25, 99-1                       57, 0.92
+                # 'MVDCNN_2020-12-11-17_40_15', # 16 views                                51, 0.93
+                # 'MVDCNN_2021-01-06-11_30_20', # best 99-1, 18e epoch                     57, 0.899
+                # 'MVDCNN_2021-01-06-15_40_03', # 99-1, weigths selon single images, 18 epoch
+                # 'MVDCNN_2021-01-07-15_55_51' # L2 aussi
+                # 'MVDCNN_2021-01-08-09_06_25', # 16 views, 18 epoch, 99
+                # 'MVDCNN_2021-01-08-10_55_32' # 16 views, poids single images, 18 epoch
 
+                # 'MVDCNN_2021-01-08-16_49_10' # july 16 views, 30 epoch (nouveaux samples) arrêt à 25e 55, 0.946
+                # 'MVDCNN_2021-01-08-14_07_58' # july 18 epoch, 99, poids segments
+                # 'MVDCNN_2021-01-08-17_38_08' # july 20 epoch, 99, poids single
+                # 'MVDCNN_2021-01-11-11_44_43' # 13 epoch, poids single et cl4 *0.83
+                # 'MVDCNN_2021-01-11-12_23_15'    # 20 epoch, poids single et cl4 *0.83
+                # 'MVDCNN_2021-01-11-12_57_58'    #  # 16 epoch, poids single et cl4 *0.83
+
+                # 'MVDCNN_2021-01-11-16_30_23'    #28px
+                # 'MVDCNN_2021-01-11-18_46_43'    #28 px, 75 epochs
+                # 'MVDCNN_2021-01-11-21_06_24'    #28 px, 50 epochs (arret fin)
+                # 'MVDCNN_2021-01-11-23_17_05'    # 34 pixels, 50e epoch
+                # 'MVDCNN_2021-01-12-09_17_11'
+    
+                # 40 pixels
+                # 'MVDCNN_2021-01-12-12_26_22'
+                # 'MVDCNN_2021-01-12-13_40_58'
+                # 'MVDCNN_2021-01-12-15_54_25'
+                # 'MVDCNN_2021-01-12-16_46_37'
+                # 'MVDCNN_2021-01-12-19_20_43'
+                # 'MVDCNN_2021-01-12-21_42_50'
+                # 'MVDCNN_2021-01-13-10_00_09'
+                # 'MVDCNN_2021-01-13-10_48_55'
+                # 'MVDCNN_2021-01-13-11_49_28'
+                # 'MVDCNN_2021-01-13-12_50_14'
+                # 'MVDCNN_2021-01-13-13_42_28'
+
+                # 45 pixels, nouveau jeu à 10m
+                # 'MVDCNN_2021-01-13-16_05_48'
+                # 'MVDCNN_2021-01-13-17_54_45'
+                # 'MVDCNN_2021-01-13-19_31_06'
+                'MVDCNN_2021-01-14-12_33_30'
                ]
 
 # si on calcule le mode
@@ -240,11 +277,10 @@ for c in checkpoints:
 
     for v in views:
         print(f'views: {v}')
-        for i in range(9):
+        for i in range(7):
 
-            test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_7mdist/",
-                                           views=v, transform=base_transforms, indices=test_sampler.indices,
-                                           expand=True)
+            test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_july/",
+                                           views=v, transform=base_transforms, expand=True)
 
             test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,
                                                       num_workers=0)
@@ -265,6 +301,7 @@ for c in checkpoints:
                 with torch.no_grad():
                     preds = model(images)
 
+                # pour les predictions random
                 # preds = torch.tensor([random_pred(classes_int, prob) for i in range(len(labels))]).view(-1)
                 # top_preds = preds
 
@@ -294,10 +331,16 @@ y_pred_mode = np.array(stats.mode(np.array(y_pred_np),0)[0])[0]
 # filtre = np.where(abs(y_diff) <= abs(y_pred_std), y_pred_np, 100)
 # y_pred_avg = np.mean(y_pred_np,0)
 
-# faut trouver une façon d'enlever les valeurs abberantes dans le nouveau calcul de la moyenne
 conf_class_map = {idx: name for idx, name in enumerate(test_dataset.class_names)}
 y_true_final = [conf_class_map[idx.item()] for idx in y_true]
 y_pred_final = [conf_class_map[idx.item()] for idx in y_pred_mode]
+
+std = np.round(np.std(y_pred_mode - np.array(y_true).astype(int)), 3)
+ecart = np.abs(y_pred_mode - np.array(y_true).astype(int))
+one_class_diff_miss_percent = np.round(np.count_nonzero((np.array(ecart) == 1)) / np.count_nonzero(ecart !=0), 3)
+one_class_diff_percent = np.round(np.count_nonzero((np.array(ecart) <= 1)) / len(ecart), 3)
+print(f'std = {std},\n % des mal classés à une classe d\'écart = {one_class_diff_miss_percent}')
+print(f'Prédictions à + ou - une classe d\'écart = {one_class_diff_percent}')
 
 class_report = classification_report(y_true_final, y_pred_final, target_names=classes)
 cm = confusion_matrix(y_true_final, y_pred_final)

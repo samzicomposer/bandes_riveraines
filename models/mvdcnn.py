@@ -15,9 +15,9 @@ class MVDCNN(nn.Module):
         self.features = nn.Sequential(*list(resnet.children())[:-1])
         self.classifier = nn.Sequential(
             nn.Dropout(),
-            nn.Linear(fc_in_features, 512),
-            nn.Dropout(),
-            nn.Linear(512, num_classes)
+            nn.Linear(fc_in_features, num_classes)
+            # nn.Dropout(),
+            # nn.Linear(512, num_classes)
         )
 
     def forward(self, inputs): # inputs.shape = samples x views x height x width x channels
