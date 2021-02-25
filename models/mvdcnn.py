@@ -22,13 +22,15 @@ class MVDCNN(nn.Module):
 
     def forward(self, inputs): # inputs.shape = samples x views x height x width x channels
         inputs = inputs.transpose(0, 1)
-        view_features = [] 
+        # inputs = inputs.unsqueeze(0)
+        view_features = []
         for view_batch in inputs:
             view_batch = self.features(view_batch)
             view_batch = view_batch.view(view_batch.shape[0], view_batch.shape[1:].numel())
-            view_features.append(view_batch)   
+            view_features.append(view_batch)
             
         pooled_views = torch.mean(torch.stack(view_features), 0)
         # pooled_views, _ = torch.max(torch.stack(view_features), 0)
+        # outputs = self.classifier(view_batch)
         outputs = self.classifier(pooled_views)
         return outputs

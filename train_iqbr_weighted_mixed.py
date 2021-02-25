@@ -161,17 +161,17 @@ class PleiadesDataset(torch.utils.data.Dataset):
         if self.expand:
 
             for key, samp in self.samples.items():
-                if key in self.indices:
-                    random.shuffle(samp)
-                    # samples_list.append(samp)
-                    # for i in range(10):
-                    #     samples_list.append(random.choices(samp, k=self.views))
-                    if len(samp)//self.views < 1:
-                        samples_list.append(random.choices(samp, k=self.views))
-                    else:
-                        for i in range(len(samp)//self.views):
-                            b = i*self.views
-                            samples_list.append(samp[b:b+self.views])
+                # if key in self.indices:
+                random.shuffle(samp)
+                # samples_list.append(samp)
+                # for i in range(10):
+                #     samples_list.append(random.choices(samp, k=self.views))
+                if len(samp)//self.views < 1:
+                    samples_list.append(random.choices(samp, k=self.views))
+                else:
+                    for i in range(len(samp)//self.views):
+                        b = i*self.views
+                        samples_list.append(samp[b:b+self.views])
 
             self.samples = samples_list
 
@@ -211,9 +211,9 @@ class PleiadesDataset(torch.utils.data.Dataset):
 
 views = 4
 batch_size = 512
-epochs = 75
+epochs = 60
 crop_size = 45
-permutations = 5
+permutations = 1
 
 base_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomApply([
     torchvision.transforms.RandomRotation(45),
@@ -240,8 +240,8 @@ test_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomA
     torchvision.transforms.Normalize(mean=(means[0], means[1], means[2]), std=(stds[0], stds[1], stds[2]))
 ])
 
-dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/", views=1, transform=base_transforms, indices = None, expand=False)
-temp_test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/", views=1, transform=base_transforms, indices = None)
+dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/", views=views, transform=base_transforms, indices = None, expand=True)
+temp_test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/", views=views, transform=base_transforms, indices = None, expand=True)
 # train_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/iqbr/train", views=3, transform=base_transforms)
 # val_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/iqbr/val", views=3, transform=base_transforms)
 # test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/iqbr/test", views=3, transform=base_transforms)
@@ -306,6 +306,7 @@ train_sampler = torch.utils.data.sampler.SubsetRandomSampler(sample_idxs[0:train
 #     sample_idxs[train_sample_count:(train_sample_count + valid_sample_count)])
 valid_sampler = torch.utils.data.sampler.SubsetRandomSampler(sample_idxs[train_sample_count:])
 
+
 train_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/", views=views, transform=base_transforms, indices = train_sampler.indices, expand=True)
 val_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/", views=views, transform=test_transforms, indices = valid_sampler.indices, expand=True)
 
@@ -317,12 +318,12 @@ test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test
 # valid_loader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, sampler=valid_sampler, num_workers=0,pin_memory=True)
 # test_loader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, sampler=test_sampler, num_workers=0,pin_memory=True)
 
-train_rsampler = torch.utils.data.sampler.RandomSampler(train_dataset)
-val_rsampler = torch.utils.data.sampler.RandomSampler(val_dataset)
+# train_rsampler = torch.utils.data.sampler.RandomSampler(train_dataset)
+# val_rsampler = torch.utils.data.sampler.RandomSampler(val_dataset)
 test_rsampler = torch.utils.data.sampler.RandomSampler(test_dataset)
 
-train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size,sampler=train_rsampler,  num_workers=0)
-valid_loader = torch.utils.data.DataLoader(dataset=val_dataset, batch_size=batch_size, sampler = val_rsampler,num_workers=0)
+train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size,sampler=train_sampler,  num_workers=0)
+valid_loader = torch.utils.data.DataLoader(dataset=val_dataset, batch_size=batch_size, sampler = valid_sampler,num_workers=0)
 test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,sampler = test_rsampler, num_workers=0)
 
 # counts = {0:0, 1:0, 2:0, 3:0, 4:0}
@@ -472,12 +473,12 @@ for epoch in range(epochs):
     y_pred = defaultdict(list)
 
     for i in range(permutations):
-        val_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/",
-                                      views=views,
-                                      transform=test_transforms, indices=valid_sampler.indices, expand=True)
+        # val_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/",
+        #                               views=views,
+        #                               transform=test_transforms, indices=valid_sampler.indices, expand=True)
         # no rsampler si multiple passes
-        valid_loader = torch.utils.data.DataLoader(dataset=val_dataset, batch_size=batch_size,
-                                                   num_workers=0)
+        # valid_loader = torch.utils.data.DataLoader(dataset=val_dataset, batch_size=batch_size,
+        #                                            num_workers=0)
         # test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/",
         #                                views=views, transform=base_transforms, indices=test_sampler.indices,
         #                                expand=True)
@@ -571,10 +572,10 @@ for epoch in range(epochs):
     # print("----------------------------------------------------\n")
     # scheduler.step()
 
-    train_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/", views=views,
-                                    transform=base_transforms, indices=train_sampler.indices, expand=True)
-    train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, sampler=train_rsampler,
-                                               num_workers=0)
+    # train_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/", views=views,
+    #                                 transform=base_transforms, indices=train_sampler.indices, expand=True)
+    # train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, sampler=train_rsampler,
+    #                                            num_workers=0)
     # val_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/iqbr_cl_covabar_10mdist_july/", views=views,
     #                               transform=base_transforms, indices=valid_sampler.indices, expand=True)
     # valid_loader = torch.utils.data.DataLoader(dataset=val_dataset, batch_size=batch_size, sampler=val_rsampler,
@@ -691,7 +692,7 @@ plot_confusion_matrix(cm, name, normalize=True,
 # logs
 window_size = crop_size
 file = 'iqbr_mvdcnn_obcfiltered3_rgb.csv'
-comment =  f'L4, centercrop, {permutations} permutations, (train val = 85-15), poids single img, classificateur 512-do-512, MEAN POOL, classes COV, CJ 0.2, AUGMENT, views et segments rives isoles par dataset (une fois chaque image),random sampler, {views} views, seed = {seed}'
+comment =  f'MIXED, L4, centercrop, {permutations} permutations, (train val = 85-15), poids single img, classificateur 512-do-512, MEAN POOL, classes COV, CJ 0.2, AUGMENT, views et segments rives isoles par dataset (une fois chaque image),random sampler, {views} views, seed = {seed}'
 logger(date_time, model_name, model, dataset, window_size, epochs, learning_rate, batch_size, weight_decay, train_loss,
        valid_loss, 0,
        best_train_accuracy, best_model_accuracy, test_accuracy, name, file, save_checkpoint=True,

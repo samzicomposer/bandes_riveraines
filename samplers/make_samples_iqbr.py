@@ -168,10 +168,10 @@ class SentinelImage(torch.utils.data.Dataset):
         return bands, iqbr ,iqbr_fid, fid, iqbr_value, test_ds, diff  # return tuple with class index as 2nd member
 
 
-target_bands = [1,2,3]
+target_bands = [1,2,3,4]
 root = r'D:\deep_learning\images\use'
 points_shp_path = r"D:\deep_learning\samples\sampling\acadie_full_21m_points.shp"
-outdir = r"D:\deep_learning\samples\jeux_separes\train\iqbr_cl_covabar_10mdist_obcfiltered3_rgb\\"
+outdir = r"D:\deep_learning\samples\jeux_separes\test\iqbr_cl_covabar_10mdist_obcfiltered3_rgbnir\\"
 batch_size = 1
 window_size = 70
 
@@ -188,7 +188,7 @@ for batch_idx, batch in enumerate(train_loader):
     try:
         assert not 0 in bands
         # choix du jeu de données
-        assert test_ds != 1
+        assert test_ds == 1
         # un iqbr de moins de 1.7 est erronné
         assert iqbr_value >= 1.7
         # on retire les segments pour lesqueles l'iqbr diffère trop de l'iqbr provenant de l'OBC
@@ -213,7 +213,7 @@ for batch_idx, batch in enumerate(train_loader):
                            dtype=bands.dtype,
                            # crs=opened.crs,
                            ) as dst:
-            for k in range(3):
+            for k in range(4):
                 dst.write(bands[k], indexes=k+1)
     except:
         pass

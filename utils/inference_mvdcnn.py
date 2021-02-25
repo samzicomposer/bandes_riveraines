@@ -182,7 +182,7 @@ base_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomA
 ], p=0.9),
     torchvision.transforms.RandomHorizontalFlip(p=0.5),
     torchvision.transforms.RandomVerticalFlip(p=0.5),
-    # torchvision.transforms.ColorJitter(0.3,0.3,0.3),
+    torchvision.transforms.ColorJitter(0.2,0.2,0.2),
     torchvision.transforms.CenterCrop(crop_size),
     # torchvision.transforms.RandomCrop(crop_size),
 
@@ -218,6 +218,13 @@ y_pred = defaultdict(list)
 prob = np.array([94,122,43,39,79])/377.0
 classes_int = [0,1,2,3,4]
 
+test_dataset = PleiadesDataset(
+        root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/",
+        views=16, transform=base_transforms, expand=True)
+
+test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,
+                                          num_workers=0)
+
 for c in checkpoints:
     print(c)
     # checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/','MVDCNN_2021-02-09-14_02_55', c, c[:-3] + '.pth'))
@@ -229,12 +236,7 @@ for c in checkpoints:
     model.eval()
 
     views = [16]
-    test_dataset = PleiadesDataset(
-        root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/",
-        views=16, transform=base_transforms, expand=True)
 
-    test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,
-                                              num_workers=0)
     for v in views:
         print(f'views: {v}')
         for i in range(5):

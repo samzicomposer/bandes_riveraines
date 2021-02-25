@@ -122,7 +122,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         if self.expand:
             sample = self.samples[idx]  # returns [[path, classe]]
-            # random.shuffle(sample)
+            random.shuffle(sample)
         else:
             sample = self.samples[idx]
 
@@ -151,7 +151,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
         return image_stack, iqbr  # return tuple with class index as 2nd member
 
 
-# views = 16
+views = 4
 batch_size = 1
 crop_size = 45
 
@@ -174,7 +174,7 @@ model = MVDCNN(pre_model, len(classes))
 
 checkpoints = [
 
-    'MVDCNN_2021-02-24-18_45_47'
+    'MVDCNN_2021-02-24-13_08_30'
 ]
 
 test_dataset = PleiadesDataset(
@@ -189,6 +189,13 @@ y_pred = defaultdict(list)
 prob = np.array([94, 122, 43, 39, 79]) / 377.0
 classes_int = [0, 1, 2, 3, 4]
 
+###############################################################################
+'''
+On prend la moyenne des classes prédites pour chaque bande riveraine selon l'assemblage des vue. 
+Exemple: bande riveraine de 16 images, 4 vues donc 4 prédictions. On fait la moyenne de ces 4 prédictions, et ce
+un nombre x de fois. Une fois sorti de la boucle, on arrondi la moyenne des moyennes à la classe la plus près.
+'''
+
 for c in checkpoints:
     print(c)
 
@@ -200,8 +207,6 @@ for c in checkpoints:
         model = model.cuda()
     model.eval()
 
-    views = [16]
-
     for i in range(10):
 
         # enlever si on calcule le mode
@@ -211,9 +216,21 @@ for c in checkpoints:
         y_true = []
         for minibatch in test_loader:
 
-            images = minibatch[0]  # rappel: en format BxCxHxW
+            view_features = []
+            if len(minibatch[0][0]) < views:
+                view_features.append(minibatch[0][0][:])
+            else:
+                # on separe la bande en groupes selon le nombre de vues
+                range_v = (len(minibatch[0][0])//views)
+                for v in range(range_v):
+                    # on assemble les images selon le nombre de vues
+                    coord = v*views
+                    view_features.append(minibatch[0][0][coord:coord+views])
+                # if range_v % views != 0:
+                #     view_features.append(minibatch[0][0][coord+views:])
+
+            images = torch.stack(view_features)
             labels = minibatch[1]  # rappel: en format Bx1
-            # images = torch.stack([item for sublist in images for item in sublist])
 
             if use_cuda:
                 images = images.to(device)
@@ -221,17 +238,16 @@ for c in checkpoints:
             with torch.no_grad():
                 preds = model(images)
 
-            # pour les predictions random
-            # preds = torch.tensor([random_pred(classes_int, prob) for i in range(len(labels))]).view(-1)
-            # top_preds = preds
-
+            # la meilleure prediction pour chacune des vues
             top_preds = preds.topk(k=1, dim=1)[1].view(-1)
-            preds = [preds[0].cpu()]
+            # la classe moyenne predite par les assemblages de vues (toute la bande)
+            avg_prediction = [torch.mean(top_preds.double())]
 
-            for p, l in zip(preds, labels):
+            for p, l in zip(avg_prediction, labels):
                 y_true.append(l)
                 y_pred[str(i) + str(views) + c].append(p)
-            test_correct += (top_preds == labels).nonzero().numel()
+            # on arrondi la moyenne à la classe la plus près pour le test de classification
+            test_correct += (torch.round(avg_prediction[0]) == labels).nonzero().numel()
             test_total += labels.numel()
 
         test_accuracy = test_correct / test_total
@@ -242,13 +258,13 @@ for c in checkpoints:
 # conversion des prediction en matrice numpy
 y_pred_np = []
 for k in y_pred.keys():
-    y_pred_np.append(np.array([i.numpy() for i in y_pred[k]]))
+    y_pred_np.append(np.array([i.cpu().numpy() for i in y_pred[k]]))
 y_pred_np = np.array(y_pred_np)
 
 # calcul de la moyenne des predictions
 avg = np.average(y_pred_np, 0)
-# classe ayant la plus haute moyenne de prediction
-max_pred = np.argmax(avg, 1)
+# classe la plus proche (arrondie)
+rounded_pred = np.round(avg, 0)
 
 # y_pred_mode = np.array(stats.mode(np.array(y_pred_np), 0)[0])[0]
 # mean = np.array(np.mean(np.array(y_pred_np), 0))
@@ -258,10 +274,10 @@ max_pred = np.argmax(avg, 1)
 
 conf_class_map = {idx: name for idx, name in enumerate(test_dataset.class_names)}
 y_true_final = [conf_class_map[idx.item()] for idx in y_true]
-y_pred_final = [conf_class_map[idx.item()] for idx in max_pred]
+y_pred_final = [conf_class_map[idx.item()] for idx in rounded_pred]
 
 # std = np.round(np.std(y_pred_mode - np.array(y_true).astype(int)), 3)
-ecart = np.abs(max_pred - np.array(y_true).astype(int))
+ecart = np.abs(rounded_pred - np.array(y_true).astype(int))
 one_class_diff_miss_percent = np.round(np.count_nonzero((np.array(ecart) == 1)) / np.count_nonzero(ecart != 0), 3)
 one_class_diff_percent = np.round(np.count_nonzero((np.array(ecart) <= 1)) / len(ecart), 3)
 # print(f'std = {std},\n % des mal classés à une classe d\'écart = {one_class_diff_miss_percent}')

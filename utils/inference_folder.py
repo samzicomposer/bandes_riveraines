@@ -157,31 +157,36 @@ crop_size = 45
 
 base_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomApply([
     torchvision.transforms.RandomRotation(45),
-], p=0.9),
-    torchvision.transforms.RandomHorizontalFlip(p=0.5),
-    torchvision.transforms.RandomVerticalFlip(p=0.5),
-    torchvision.transforms.ColorJitter(0.2,0.2,0.2),
+], p=0.0),
+    # torchvision.transforms.RandomHorizontalFlip(p=0.5),
+    # torchvision.transforms.RandomVerticalFlip(p=0.5),
+    # torchvision.transforms.ColorJitter(0.2,0.2,0.2),
     torchvision.transforms.CenterCrop(crop_size),
     # torchvision.transforms.RandomCrop(crop_size),
 
     torchvision.transforms.ToTensor(),  # rescale de 0 à 1, de là les valeurs ci-dessous
     torchvision.transforms.Normalize(mean=(means[0], means[1], means[2]), std=(stds[0], stds[1], stds[2]))
 ])
-pre_model = torchvision.models.resnet18(pretrained=True)
-model = MVDCNN(pre_model, len(classes))
+
+model = torchvision.models.resnet18(pretrained=True)
+model.fc = nn.Sequential(nn.Dropout2d(0.5), torch.nn.Linear(in_features=512, out_features=512),nn.Dropout2d(0.5),torch.nn.Linear(in_features=512, out_features=len(classes)))
 
 ###### test du modèle ######
 
 checkpoints = [
 
-    'MVDCNN_2021-02-24-18_45_47'
+    'ResNet_2021-02-22-19_56_38'
 ]
 
 test_dataset = PleiadesDataset(
         root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/",
         views=16, transform=base_transforms, expand=True)
 
+# test_dataset = torchvision.datasets.ImageFolder(root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb/",
+#                                            transform=base_transforms)
+
 test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,num_workers=0)
+
 
 # si on calcule le mode
 y_pred = defaultdict(list)
@@ -202,7 +207,7 @@ for c in checkpoints:
 
     views = [16]
 
-    for i in range(10):
+    for i in range(1):
 
         # enlever si on calcule le mode
         # y_pred = defaultdict(list)
@@ -211,7 +216,7 @@ for c in checkpoints:
         y_true = []
         for minibatch in test_loader:
 
-            images = minibatch[0]  # rappel: en format BxCxHxW
+            images = minibatch[0][0]  # rappel: en format BxCxHxW
             labels = minibatch[1]  # rappel: en format Bx1
             # images = torch.stack([item for sublist in images for item in sublist])
 
@@ -226,12 +231,14 @@ for c in checkpoints:
             # top_preds = preds
 
             top_preds = preds.topk(k=1, dim=1)[1].view(-1)
-            preds = [preds[0].cpu()]
+            preds = [preds.cpu()]
 
             for p, l in zip(preds, labels):
                 y_true.append(l)
-                y_pred[str(i) + str(views) + c].append(p)
-            test_correct += (top_preds == labels).nonzero().numel()
+                # on calcule la moyenne de classe pour toute la bande riveraine
+                avg_prediction = torch.mean(top_preds.double())
+                y_pred[str(i) + str(views) + c].append(avg_prediction)
+            test_correct += ((torch.round(avg_prediction)) == labels).nonzero().numel()
             test_total += labels.numel()
 
         test_accuracy = test_correct / test_total
@@ -242,13 +249,13 @@ for c in checkpoints:
 # conversion des prediction en matrice numpy
 y_pred_np = []
 for k in y_pred.keys():
-    y_pred_np.append(np.array([i.numpy() for i in y_pred[k]]))
+    y_pred_np.append(np.array([i.cpu().numpy() for i in y_pred[k]]))
 y_pred_np = np.array(y_pred_np)
 
-# calcul de la moyenne des predictions
+# calcul de la moyenne des classes prédites pour chaque bande riveraine
 avg = np.average(y_pred_np, 0)
-# classe ayant la plus haute moyenne de prediction
-max_pred = np.argmax(avg, 1)
+# classe la plus proche (arrondie)
+rounded_pred = np.round(avg, 0)
 
 # y_pred_mode = np.array(stats.mode(np.array(y_pred_np), 0)[0])[0]
 # mean = np.array(np.mean(np.array(y_pred_np), 0))
@@ -256,12 +263,12 @@ max_pred = np.argmax(avg, 1)
 # diff = mean - vrai
 # print(diff)
 
-conf_class_map = {idx: name for idx, name in enumerate(test_dataset.class_names)}
+conf_class_map = {idx: name for idx, name in enumerate(classes)}
 y_true_final = [conf_class_map[idx.item()] for idx in y_true]
-y_pred_final = [conf_class_map[idx.item()] for idx in max_pred]
+y_pred_final = [conf_class_map[idx.item()] for idx in rounded_pred]
 
 # std = np.round(np.std(y_pred_mode - np.array(y_true).astype(int)), 3)
-ecart = np.abs(max_pred - np.array(y_true).astype(int))
+ecart = np.abs(rounded_pred - np.array(y_true).astype(int))
 one_class_diff_miss_percent = np.round(np.count_nonzero((np.array(ecart) == 1)) / np.count_nonzero(ecart != 0), 3)
 one_class_diff_percent = np.round(np.count_nonzero((np.array(ecart) <= 1)) / len(ecart), 3)
 # print(f'std = {std},\n % des mal classés à une classe d\'écart = {one_class_diff_miss_percent}')
