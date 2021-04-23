@@ -26,7 +26,7 @@ import random
 use_cuda = torch.cuda.is_available()
 
 # Seeds déterministes
-seed = 99
+seed = 48
 torch.manual_seed(seed)
 random.seed(seed)
 np.random.seed(seed)
@@ -126,8 +126,9 @@ class PleiadesDataset(torch.utils.data.Dataset):
         else:
             sample = self.samples[idx]
 
-        iqbr = sample[0][1]  # any second element
-
+        # iqbr = sample[0][1]  # any second element
+        iqbr = np.float32(sample[0][0].split('_')[-1][:-4])  # la valeur dans le nom en enlevant le .tiff à la fin
+        iqbr = round(iqbr,1)
         #
         # if len(sample) < self.views:
         #     # raster_paths = sample
@@ -151,7 +152,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
         return image_stack, iqbr  # return tuple with class index as 2nd member
 
 
-views = 2
+# views = 16
 batch_size = 1
 crop_size = 45
 
@@ -168,17 +169,18 @@ base_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomA
     torchvision.transforms.Normalize(mean=(means[0], means[1], means[2]), std=(stds[0], stds[1], stds[2]))
 ])
 pre_model = torchvision.models.resnet18(pretrained=True)
-model = MVDCNN(pre_model, len(classes))
+# model = MVDCNN(pre_model, len(classes))
+model = MVDCNN(pre_model, 1)
 
 ###### test du modèle ######
 
 checkpoints = [
 
-    'MVDCNN_2021-03-05-16_20_38'
+    'MVDCNN_2021-03-18-10_47_31'
 ]
 
 test_dataset = PleiadesDataset(
-        root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb1/",
+        r"D:/deep_learning/samples/jeux_separes/test/all_values_v2_rgb/",
         views=16, transform=base_transforms, expand=True)
 
 test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,num_workers=0)
@@ -189,17 +191,10 @@ y_pred = defaultdict(list)
 prob = np.array([94, 122, 43, 39, 79]) / 377.0
 classes_int = [0, 1, 2, 3, 4]
 
-###############################################################################
-'''
-On prend la moyenne des classes prédites pour chaque bande riveraine selon l'assemblage des vue. 
-Exemple: bande riveraine de 16 images, 4 vues donc 4 prédictions. On fait la moyenne de ces 4 prédictions, et ce
-un nombre x de fois. Une fois sorti de la boucle, on arrondi la moyenne des moyennes à la classe la plus près.
-'''
-
 for c in checkpoints:
     print(c)
 
-    # checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/','MVDCNN_2021-02-09-14_02_55', c, c[:-3] + '.pth'))
+    # checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/','MVDCNN_2021-02-09-10_30_53', c, c[:-3] + '.pth'))
     checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/', c, c + '.pth'))
 
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -207,89 +202,88 @@ for c in checkpoints:
         model = model.cuda()
     model.eval()
 
-    for i in range(10):
+    views = [16]
+
+    for i in range(3):
 
         # enlever si on calcule le mode
         # y_pred = defaultdict(list)
 
-        test_correct, test_total = 0, 0
+        test_ecart, test_total = [], 0
         y_true = []
         for minibatch in test_loader:
 
-            view_features = []
-            if len(minibatch[0][0]) < views:
-                view_features.append(minibatch[0][0][:])
-            else:
-                # on separe la bande en groupes selon le nombre de vues
-                range_v = (len(minibatch[0][0])//views)
-                for v in range(range_v):
-                    # on assemble les images selon le nombre de vues
-                    coord = v*views
-                    view_features.append(minibatch[0][0][coord:coord+views])
-                # if range_v % views != 0:
-                #     view_features.append(minibatch[0][0][coord+views:])
-
-            images = torch.stack(view_features)
+            images = minibatch[0]  # rappel: en format BxCxHxW
             labels = minibatch[1]  # rappel: en format Bx1
+            # images = torch.stack([item for sublist in images for item in sublist])
 
             if use_cuda:
                 images = images.to(device)
                 labels = labels.to(device)
             with torch.no_grad():
-                preds = model(images)
+                preds = model(images).view(-1)
 
-            # la meilleure prediction pour chacune des vues
-            top_preds = preds.topk(k=1, dim=1)[1].view(-1)
-            # la classe moyenne predite par les assemblages de vues (toute la bande)
-            avg_prediction = [torch.mean(top_preds.double())]
+            # pour les predictions random
+            # preds = torch.tensor([random_pred(classes_int, prob) for i in range(len(labels))]).view(-1)
+            top_preds = preds
 
-            for p, l in zip(avg_prediction, labels):
+            # top_preds = preds.topk(k=1, dim=1)[1].view(-1)
+            preds = [preds[0].cpu()]
+
+            for p, l in zip(preds, labels):
                 y_true.append(l)
                 y_pred[str(i) + str(views) + c].append(p)
-            # on arrondi la moyenne à la classe la plus près pour le test de classification
-            test_correct += (torch.round(avg_prediction[0]) == labels).nonzero().numel()
+                test_ecart.append(abs(p-l).item())
             test_total += labels.numel()
 
-        test_accuracy = test_correct / test_total
-        print(f"\nfinal test {i}: accuracy={test_accuracy:0.4f}\n")
+        test_ecart = np.array(test_ecart)*10
+        test_accuracy = np.sqrt(np.mean(test_ecart**2) )
+        print(f"\nfinal test {i}: RMSE = {test_accuracy:0.4f}\n")
 
 ##################### confusion matrix #####################
-
 # conversion des prediction en matrice numpy
 y_pred_np = []
 for k in y_pred.keys():
-    y_pred_np.append(np.array([i.cpu().numpy() for i in y_pred[k]]))
+    y_pred_np.append(np.array([i.numpy() for i in y_pred[k]]))
 y_pred_np = np.array(y_pred_np)
 
 # calcul de la moyenne des predictions
-avg = np.average(y_pred_np, 0)
-# classe la plus proche (arrondie)
+y_true = np.array([x.item() for x in y_true])*10
+avg = np.average(y_pred_np, 0)*10
+# avg[avg<17] = 17
+avg[avg>100] = 100
+# y_true[y_true==40] = 80
+avg_error = np.round(np.mean(abs(avg-y_true)),3)
+# classe ayant la plus haute moyenne de prediction
 rounded_pred = np.round(avg, 0)
 
-# y_pred_mode = np.array(stats.mode(np.array(y_pred_np), 0)[0])[0]
-# mean = np.array(np.mean(np.array(y_pred_np), 0))
-# vrai = [i.item() for i in y_true]
-# diff = mean - vrai
-# print(diff)
+mean = np.mean(abs(avg-y_true))
+std = np.std(abs(avg-y_true))
+rmse = np.sqrt(np.mean((avg-y_true)**2))
 
-conf_class_map = {idx: name for idx, name in enumerate(test_dataset.class_names)}
-y_true_final = [conf_class_map[idx.item()] for idx in y_true]
-y_pred_final = [conf_class_map[idx.item()] for idx in rounded_pred]
+means = []
+stds = []
+for cl in set(y_true):
+    masque = np.array(y_true)!=cl
+    z = np.ma.array(avg,mask=masque)
+    means.append(np.mean(z))
+    stds.append(np.std(z - y_true))
 
-# std = np.round(np.std(y_pred_mode - np.array(y_true).astype(int)), 3)
-ecart = np.abs(rounded_pred - np.array(y_true).astype(int))
-one_class_diff_miss_percent = np.round(np.count_nonzero((np.array(ecart) == 1)) / np.count_nonzero(ecart != 0), 3)
-one_class_diff_percent = np.round(np.count_nonzero((np.array(ecart) <= 1)) / len(ecart), 3)
-# print(f'std = {std},\n % des mal classés à une classe d\'écart = {one_class_diff_miss_percent}')
-print(f'Prédictions à + ou - une classe d\'écart = {one_class_diff_percent}')
+stds = np.array(stds)
+stds[stds==0.0] = 'NaN'
+plt.figure(figsize=(8,5))
 
-class_report = classification_report(y_true_final, y_pred_final, target_names=classes)
-cm = confusion_matrix(y_true_final, y_pred_final)
-
-print(class_report)
-
-plot_confusion_matrix(cm, 'test_cf', normalize=True,
-                      target_names=classes,
-                      title="Confusion Matrix", show=True, save=False)
-
-
+plt.scatter(y_true, avg, color = 'black', marker='.')
+# plt.errorbar(list(set(y_true)), means, stds, linestyle = 'None',color='black', marker = '.', capsize = 3)
+coef = np.polyfit(y_true, avg, 1)
+slope, intercept, r_value, p_value, std_err = stats.linregress(y_true, avg)
+plt.xlabel('IQBR terrain')
+plt.ylabel('IQBR prédit')
+plt.text(30, 95, f"r2: {round(r_value**2,2)}")
+plt.text(30,90, f"Écart type des erreurs: {np.round(std,2)}")
+plt.text(30,85, f"RMSE: {np.round(rmse,2)}")
+plt.plot(y_true, intercept + (np.array(y_true) * slope))
+plt.grid()
+# plt.xticks(np.arange(min(y_true), max(y_true)+1, 0.5))
+# plt.xlim(1.7,10.0)
+plt.show()

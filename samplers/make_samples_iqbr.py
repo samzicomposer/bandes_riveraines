@@ -86,8 +86,11 @@ class SentinelImage(torch.utils.data.Dataset):
                 # assert not masked_array.mask[row - self.window_size//2: row + self.window_size//2  ,
                 #            col - self.window_size//2: col + self.window_size//2 ].all()
 
+                # choix du jeu de données, 2 pour le jeu test
+                assert l.GetField('test_ds') == 2
+
                 self.points_list.append([l.geometry().ExportToWkt(), l.GetField('Largeur'), l.GetField('IQBR'), l.GetField('iqbr_srl'), l.GetFID(),
-                                         l.GetField('Angle'), l.GetField('test_ds'), l.GetField('iqbr_diff')])
+                                         l.GetField('Angle'), l.GetField('test_ds'), l.GetField('iqbr_diff'), l.GetField('OBC_iqbr')])
             except:
                 pass
 
@@ -106,11 +109,16 @@ class SentinelImage(torch.utils.data.Dataset):
         iqbr_fid = point[3]
         fid = point[4]
         diff = point[7]
+        obc_iqbr = point[8]
         test_ds = point[6] if point[6]==1 else 0
         shapely_point = wkt.loads(point[0])
         x, y = shapely_point.x, shapely_point.y
 
         iqbr_value = point[2]
+
+        # on fait la moyenne des iqbr si la différence est ok
+        # if diff < 3.0:
+        #     iqbr_value = (point[2] + obc_iqbr) / 2
         # class_value = point[6]
 
         #classes gouvernement
@@ -137,12 +145,7 @@ class SentinelImage(torch.utils.data.Dataset):
         else:
             iqbr = 4
 
-        # if iqbr_value <= 2.9:
-        #     iqbr = 0
-        # elif 2.9 < iqbr_value <= 7.6:
-        #     iqbr = 1
-        # elif 7.6 < iqbr_value <= 10.0:
-        #     iqbr = 2
+        # iqbr = iqbr_value
 
         bands = []
 
@@ -171,7 +174,7 @@ class SentinelImage(torch.utils.data.Dataset):
 target_bands = [1,2,3,4]
 root = r'D:\deep_learning\images\use'
 points_shp_path = r"D:\deep_learning\samples\sampling\acadie_full_21m_points.shp"
-outdir = r"D:\deep_learning\samples\jeux_separes\test\iqbr_cl_covabar_10mdist_obcfiltered3_rgbnir\\"
+outdir = r"D:\deep_learning\samples\jeux_separes\test\all_values_v2_rgbnir\\"
 batch_size = 1
 window_size = 70
 
@@ -187,8 +190,7 @@ for batch_idx, batch in enumerate(train_loader):
     bands, iqbr, iqbr_fid, fid, iqbr_value, test_ds, diff  = batch
     try:
         assert not 0 in bands
-        # choix du jeu de données
-        assert test_ds == 1
+
         # un iqbr de moins de 1.7 est erronné
         assert iqbr_value >= 1.7
         # on retire les segments pour lesqueles l'iqbr diffère trop de l'iqbr provenant de l'OBC
@@ -202,7 +204,7 @@ for batch_idx, batch in enumerate(train_loader):
         distribution = [0.8, 0.1, 0.1]
         # choice = random.choices(choice_list, distribution)
 
-        samplename = os.path.join(outdir, str(iqbr.item()), iqbr_fid[0][-7:-1] + month + str(fid) + '.tif')
+        samplename = os.path.join(outdir, str(iqbr.item()), iqbr_fid[0][-7:-1] + month + str(fid) +'_'+ str(iqbr_value.item()) + '.tif')
 
         if not os.path.isdir(os.path.dirname(samplename)):
             os.mkdir(os.path.dirname(samplename))

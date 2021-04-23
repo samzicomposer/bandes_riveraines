@@ -2,16 +2,21 @@ import numpy as np
 import os
 import time
 from datetime import datetime
+from utils.get_model_name import get_model_name
 
 from collections import defaultdict
 from PIL import Image
 from scipy import stats
+import gdal
+from google_drive_downloader import GoogleDriveDownloader as gdd
+
 
 import torch
 import torchvision
 import torch.nn as nn
 from torch.utils.data import Dataset
 from models.mvdcnn import MVDCNN
+from models.justine_resnet18 import ResNet18
 
 from utils.augmentation import compose_transforms
 from utils.logger import logger
@@ -21,17 +26,45 @@ from utils.plot_a_confusion_matrix import plot_confusion_matrix
 import matplotlib.pyplot as plt
 from scipy import ndimage
 
+
 import random
 
-use_cuda = torch.cuda.is_available()
+class MyDataset(Dataset):
+    def __init__(self, subset, transform=None):
+        self.subset = subset
+        self.transform = transform
 
-# Seeds déterministes
-seed = 99
-torch.manual_seed(seed)
-random.seed(seed)
-np.random.seed(seed)
-torch.cuda.manual_seed(seed)
-torch.backends.cudnn.deterministic = True
+    def __getitem__(self, index):
+        x, y = self.subset[index]
+        # if self.transform:
+        #     x = self.transform(x)
+        return x, y
+
+    def __len__(self):
+        return len(self.subset)
+
+def get_class_distribution(dataset_obj, idx_to_class):
+    count_dict = {k: 0 for k, v in idx_to_class.items()}
+
+    for element in dataset_obj:
+        try:
+            y_lbl = element[1]
+            # y_lbl = idx_to_class[int(y_lbl)]
+            count_dict[y_lbl] += 1
+        except:
+            pass
+
+    return count_dict
+
+def CenterCrop(img, dim):
+    width, height = img.shape[2], img.shape[1]
+    crop_size= dim
+    mid_x, mid_y = int(width / 2), int(height / 2)
+    cw2, ch2 = int(crop_size / 2), int(crop_size / 2)
+    crop_img = img[:, mid_y - ch2:mid_y + ch2, mid_x - cw2:mid_x + cw2]
+    return crop_img
+
+use_cuda = torch.cuda.is_available()
 
 if not use_cuda:
     print("WARNING: PYTORCH COULD NOT LOCATE ANY AVAILABLE CUDA DEVICE.\n")
@@ -39,31 +72,40 @@ else:
     device = torch.device("cuda:0")
     print("All good, a GPU is available.")
 
-
-def random_pred(classes, prob):
-    pred = np.random.choice(classes, p=prob)
-    return pred
+# Seeds déterministes
+# seeds = np.random.randint(100,1000, size=2)
+# seeds = np.append(seeds, [1,51,24])
+seeds = [1,51,24]
+# for seed in seeds:
+seed = 1
+torch.manual_seed(seed)
+random.seed(seed)
+np.random.seed(seed)
+torch.cuda.manual_seed(seed)
+torch.backends.cudnn.deterministic = True
 
 
 # for confusion matrix
+classes = ['1.7-2.1', '2.1-4.0', '4.0-6.0', '6.0-8.0', '8.0-10']
 
-classes = ['0', '1', '2', '3', '4']
-# rgb
-stds = [0.0598, 0.0386, 0.0252]  # nouveau jeu de données
-means = [0.2062, 0.2971, 0.3408]  # nouveau jeu de données
+# with rgbnir
+# stds = [0.0598, 0.0386, 0.0252, 0.1064]
+# means =[0.2062, 0.2971,0.3408,0.4101]
 
-
-# rg-nir
-# stds = [0.0598, 0.0386, 0.1064] # nouveau jeu de données juin et full
-# means =[0.2062, 0.2971,0.4101]  # nouveau jeu de données juin et full
+stds = {1:5.8037, 2: 3.8330,3: 5.0484,4: 9.3750}
+means = {1:49.0501, 2:74.7162, 3:86.9113, 4:109.2907}
+# # with r-g-nir
+# stds = [0.0598, 0.0386, 0.1064] # nouveau jeu de données
+# means =[0.2062, 0.2971,0.4101]  # nouveau jeu de données
 
 class PleiadesDataset(torch.utils.data.Dataset):
 
-    def __init__(self, root, views, indices=None, transform=compose_transforms, expand=False):
+    def __init__(self, root, views,indices=None, transform=compose_transforms, expand = False):
         assert os.path.isdir(root)
+        self.target_bands = [3,2,1,4]
         self.indices = indices
         self.expand = expand
-        self.transform = transform
+        self.transform = transform()
         self.views = views
         self.class_names = ['0', '1', '2', '3', '4']
         self.samples_vfs = []
@@ -86,6 +128,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
 
         del self.samples_vfs
 
+
         # nécessaire encore pour avoir des indices en pas de 1
         image_dict = defaultdict(list)
         num = 0
@@ -103,16 +146,16 @@ class PleiadesDataset(torch.utils.data.Dataset):
 
             for key, samp in self.samples.items():
                 # if key in self.indices:
-                # random.shuffle(samp)
-
-                # if len(samp)//self.views < 1:
+                    # random.shuffle(samp)
                 samples_list.append(samp)
-                # samples_list.append(random.choices(samp, k=self.views))
-                # else:
-                #     for i in range(len(samp)//self.views):
-                #         b = i*self.views
-                #         # samples_list.append(random.sample(s, k=self.views))
-                #         samples_list.append(samp[b:b+self.views])
+                    # for i in range(10):
+                    #     samples_list.append(random.choices(samp, k=self.views))
+                    # if len(samp)//self.views < 1:
+                    #     samples_list.append(random.choices(samp, k=self.views))
+                    # else:
+                    #     for i in range(len(samp)//self.views):
+                    #         b = i*self.views
+                    #         samples_list.append(samp[b:b+self.views])
 
             self.samples = samples_list
 
@@ -121,65 +164,55 @@ class PleiadesDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         if self.expand:
-            sample = self.samples[idx]  # returns [[path, classe]]
-            random.shuffle(sample)
+            sample = self.samples[idx] # returns [[path, classe]]
+            # random.shuffle(sample)
         else:
             sample = self.samples[idx]
 
         iqbr = sample[0][1]  # any second element
 
-        #
-        # if len(sample) < self.views:
-        #     # raster_paths = sample
-        #     raster_paths = random.choices(sample, k=self.views)
-        # else:
-        #     # raster_paths =  sample
-        #     raster_paths = random.sample(sample, self.views)
-
-        # image = Image.open(sample[0][0])
         image_stack = []
-        for path in sample:
-            image = Image.open(path[0])
+        for samp in sample:
+
+            raster_ds = gdal.Open(samp[0], gdal.GA_ReadOnly)
+            image = []
+            for channel in self.target_bands:
+                image_arr = raster_ds.GetRasterBand(channel).ReadAsArray()
+                assert image_arr is not None, f"Band not found: {channel}"
+
+                image_arr = ((image_arr.astype(np.float32) - means[channel]) / stds[channel]).astype(np.float32)
+
+                image.append(image_arr)
+            image = np.dstack(image)
 
             if self.transform:
                 image = self.transform(image)
-            image_stack.append(image)
+            image = torchvision.transforms.functional.to_tensor(image)
+            image = CenterCrop(image, 46)
 
-        # convert numpy array to torch tensor
-        # image = torchvision.transforms.functional.to_tensor(np.float32(image))
+            image_stack.append(image)
+        # on empile les images/vues
         image_stack = torch.stack(image_stack)
         return image_stack, iqbr  # return tuple with class index as 2nd member
 
 
-views = 2
+# views = 16
 batch_size = 1
 crop_size = 45
 
-base_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomApply([
-    torchvision.transforms.RandomRotation(45),
-], p=0.9),
-    torchvision.transforms.RandomHorizontalFlip(p=0.5),
-    torchvision.transforms.RandomVerticalFlip(p=0.5),
-    torchvision.transforms.ColorJitter(0.2,0.2,0.2),
-    torchvision.transforms.CenterCrop(crop_size),
-    # torchvision.transforms.Resize(64),
-
-    torchvision.transforms.ToTensor(),  # rescale de 0 à 1, de là les valeurs ci-dessous
-    torchvision.transforms.Normalize(mean=(means[0], means[1], means[2]), std=(stds[0], stds[1], stds[2]))
-])
-pre_model = torchvision.models.resnet18(pretrained=True)
+pre_model = ResNet18()
 model = MVDCNN(pre_model, len(classes))
 
 ###### test du modèle ######
 
 checkpoints = [
 
-    'MVDCNN_2021-03-05-16_20_38'
+    'MVDCNN_2021-02-25-14_14_47'
 ]
 
 test_dataset = PleiadesDataset(
-        root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgb1/",
-        views=16, transform=base_transforms, expand=True)
+        root=r"D:/deep_learning/samples/jeux_separes/test/iqbr_cl_covabar_10mdist_obcfiltered3_rgbnir/",
+        views=16,  expand=True)
 
 test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,num_workers=0)
 
@@ -188,13 +221,6 @@ y_pred = defaultdict(list)
 
 prob = np.array([94, 122, 43, 39, 79]) / 377.0
 classes_int = [0, 1, 2, 3, 4]
-
-###############################################################################
-'''
-On prend la moyenne des classes prédites pour chaque bande riveraine selon l'assemblage des vue. 
-Exemple: bande riveraine de 16 images, 4 vues donc 4 prédictions. On fait la moyenne de ces 4 prédictions, et ce
-un nombre x de fois. Une fois sorti de la boucle, on arrondi la moyenne des moyennes à la classe la plus près.
-'''
 
 for c in checkpoints:
     print(c)
@@ -207,6 +233,8 @@ for c in checkpoints:
         model = model.cuda()
     model.eval()
 
+    views = [16]
+
     for i in range(10):
 
         # enlever si on calcule le mode
@@ -216,21 +244,9 @@ for c in checkpoints:
         y_true = []
         for minibatch in test_loader:
 
-            view_features = []
-            if len(minibatch[0][0]) < views:
-                view_features.append(minibatch[0][0][:])
-            else:
-                # on separe la bande en groupes selon le nombre de vues
-                range_v = (len(minibatch[0][0])//views)
-                for v in range(range_v):
-                    # on assemble les images selon le nombre de vues
-                    coord = v*views
-                    view_features.append(minibatch[0][0][coord:coord+views])
-                # if range_v % views != 0:
-                #     view_features.append(minibatch[0][0][coord+views:])
-
-            images = torch.stack(view_features)
+            images = minibatch[0]  # rappel: en format BxCxHxW
             labels = minibatch[1]  # rappel: en format Bx1
+            # images = torch.stack([item for sublist in images for item in sublist])
 
             if use_cuda:
                 images = images.to(device)
@@ -238,16 +254,17 @@ for c in checkpoints:
             with torch.no_grad():
                 preds = model(images)
 
-            # la meilleure prediction pour chacune des vues
-            top_preds = preds.topk(k=1, dim=1)[1].view(-1)
-            # la classe moyenne predite par les assemblages de vues (toute la bande)
-            avg_prediction = [torch.mean(top_preds.double())]
+            # pour les predictions random
+            # preds = torch.tensor([random_pred(classes_int, prob) for i in range(len(labels))]).view(-1)
+            # top_preds = preds
 
-            for p, l in zip(avg_prediction, labels):
+            top_preds = preds.topk(k=1, dim=1)[1].view(-1)
+            preds = [preds[0].cpu()]
+
+            for p, l in zip(preds, labels):
                 y_true.append(l)
                 y_pred[str(i) + str(views) + c].append(p)
-            # on arrondi la moyenne à la classe la plus près pour le test de classification
-            test_correct += (torch.round(avg_prediction[0]) == labels).nonzero().numel()
+            test_correct += (top_preds == labels).nonzero().numel()
             test_total += labels.numel()
 
         test_accuracy = test_correct / test_total
@@ -258,13 +275,13 @@ for c in checkpoints:
 # conversion des prediction en matrice numpy
 y_pred_np = []
 for k in y_pred.keys():
-    y_pred_np.append(np.array([i.cpu().numpy() for i in y_pred[k]]))
+    y_pred_np.append(np.array([i.numpy() for i in y_pred[k]]))
 y_pred_np = np.array(y_pred_np)
 
 # calcul de la moyenne des predictions
 avg = np.average(y_pred_np, 0)
-# classe la plus proche (arrondie)
-rounded_pred = np.round(avg, 0)
+# classe ayant la plus haute moyenne de prediction
+max_pred = np.argmax(avg, 1)
 
 # y_pred_mode = np.array(stats.mode(np.array(y_pred_np), 0)[0])[0]
 # mean = np.array(np.mean(np.array(y_pred_np), 0))
@@ -274,10 +291,10 @@ rounded_pred = np.round(avg, 0)
 
 conf_class_map = {idx: name for idx, name in enumerate(test_dataset.class_names)}
 y_true_final = [conf_class_map[idx.item()] for idx in y_true]
-y_pred_final = [conf_class_map[idx.item()] for idx in rounded_pred]
+y_pred_final = [conf_class_map[idx.item()] for idx in max_pred]
 
 # std = np.round(np.std(y_pred_mode - np.array(y_true).astype(int)), 3)
-ecart = np.abs(rounded_pred - np.array(y_true).astype(int))
+ecart = np.abs(max_pred - np.array(y_true).astype(int))
 one_class_diff_miss_percent = np.round(np.count_nonzero((np.array(ecart) == 1)) / np.count_nonzero(ecart != 0), 3)
 one_class_diff_percent = np.round(np.count_nonzero((np.array(ecart) <= 1)) / len(ecart), 3)
 # print(f'std = {std},\n % des mal classés à une classe d\'écart = {one_class_diff_miss_percent}')

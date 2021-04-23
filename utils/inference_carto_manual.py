@@ -43,8 +43,11 @@ def random_pred(classes, prob):
 # for confusion matrix
 
 classes = ['0', '1', '2', '3', '4']
-stds = [0.0598, 0.0386, 0.1064]  # nouveau jeu de données juin et full
-means = [0.2062, 0.2971, 0.4101]  # nouveau jeu de données juin et full
+# stds = [0.0598, 0.0386, 0.1064]  # nouveau jeu de données juin et full
+# means = [0.2062, 0.2971, 0.4101]  # nouveau jeu de données juin et full
+# rgb
+stds = [0.0598, 0.0386, 0.0252]  # nouveau jeu de données
+means = [0.2062, 0.2971, 0.3408]  # nouveau jeu de données
 
 
 class PleiadesDataset(torch.utils.data.Dataset):
@@ -87,8 +90,9 @@ class PleiadesDataset(torch.utils.data.Dataset):
         if self.expand:
 
             for key, samp in self.samples.items():
-                random.shuffle(samp)
-                samples_list.append(random.choices(samp, k=self.views))
+                samples_list.append(samp)
+                # random.shuffle(samp)
+                # samples_list.append(random.choices(samp, k=self.views))
 
             self.samples = samples_list
 
@@ -130,7 +134,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
 
 
 # views = 16
-batch_size = 512
+batch_size = 1
 crop_size = 45
 views = 16
 
@@ -154,7 +158,7 @@ model = MVDCNN(pre_model, len(classes))
 
 checkpoints = [
 
-    'MVDCNN_2021-02-17-19_31_35'
+    'MVDCNN_2021-03-05-12_41_37'
 ]
 
 # si on calcule le mode
@@ -173,7 +177,7 @@ for c in checkpoints:
     for i in range(10):
 
         test_dataset = PleiadesDataset(
-            root=r"D:\deep_learning\samples\manual_br\v1\\",
+            root=r"D:\deep_learning\samples\manual_br\rgb\\",
             views=views, transform=base_transforms, expand=True)
 
         test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,
@@ -200,8 +204,9 @@ for c in checkpoints:
             # top_preds = preds
 
             top_preds = preds.topk(k=1, dim=1)[1].view(-1)
+            preds = [preds[0].cpu()]
 
-            for p, s in zip(top_preds, segment_id):
+            for p, s in zip(preds, segment_id):
                 segment_ids.append(s)
                 y_pred[str(i) + str(views) + c].append(p)
 
@@ -211,16 +216,22 @@ for c in checkpoints:
 
 ##################### confusion matrix #####################
 
+# conversion des prediction en matrice numpy
 y_pred_np = []
 for k in y_pred.keys():
-    y_pred_np.append(np.array([i.item() for i in y_pred[k]]))
+    y_pred_np.append(np.array([i.numpy() for i in y_pred[k]]))
+y_pred_np = np.array(y_pred_np)
+# print(diff)
 
-y_pred_mode = np.array(stats.mode(np.array(y_pred_np), 0)[0])[0]
+# calcul de la moyenne des predictions
+avg = np.average(y_pred_np, 0)
+# classe ayant la plus haute moyenne de prediction
+max_pred = np.argmax(avg, 1)
 
 
 # write predictions to csv
 fields = ['Segment_id', 'Prediction']
-segment_predictions =  [[segment_ids[x]] + [str(y_pred_mode[x])] for x in range(len(segment_ids))]
+segment_predictions =  [[segment_ids[x]] + [str(max_pred[x])] for x in range(len(segment_ids))]
 
 with open('predictions/' + checkpoints[0] +'manual' + '.csv', 'w', newline='') as f:
     write = csv.writer(f)

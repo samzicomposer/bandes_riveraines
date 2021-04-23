@@ -35,11 +35,12 @@ def round_of_rating(number):
     return round(number * 2) / 2
 
 class SentinelImage(torch.utils.data.Dataset):
-    def __init__(self, root, points_path, target_bands, window_size):
+    def __init__(self, root, points_path, target_bands, window_size, type):
         assert os.path.isdir(root)
         self.bands = target_bands
         self.class_names = [0, 1, 2]
         self.window_size = window_size
+        self.type = type
 
         images = []
         for r, d, f in os.walk(root):
@@ -75,6 +76,7 @@ class SentinelImage(torch.utils.data.Dataset):
         points_lyr = ds.GetLayer()
 
         # checking if point inside image
+        count = 0
         for l in tqdm(points_lyr):
             try:
                 for img in self.opened_images:  # first UTM is easting, sol columns
@@ -85,11 +87,14 @@ class SentinelImage(torch.utils.data.Dataset):
                 # checking if all pixels of window are valid (without nodata) and inside image
                 assert 0 < row < img.shape[0]
                 assert 0 < col < img.shape[1]
-                # assert not masked_array.mask[row - self.window_size//2: row + self.window_size//2  ,
-                #            col - self.window_size//2: col + self.window_size//2 ].all()
 
-                self.points_list.append(
-                    [l.geometry().ExportToWkt(), l.GetField('fid'), l.GetField('Angle'), l.GetField('type')])
+                # nombre d'image de la classe dans la br
+
+                if l.GetField('type') == self.type:
+                    br_id = count // nb
+                    self.points_list.append(
+                        [l.geometry().ExportToWkt(), br_id, l.GetField('Angle'), l.GetField('type')])
+                    count += 1
             except:
                 pass
 
@@ -106,7 +111,7 @@ class SentinelImage(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         point = self.points_list[idx]
 
-        fid = point[1]
+        br_id = point[1]
         type = point[3]
         shapely_point = wkt.loads(point[0])
         x, y = shapely_point.x, shapely_point.y
@@ -122,7 +127,7 @@ class SentinelImage(torch.utils.data.Dataset):
                     # (col_off, row_off, width, height)
                     window = img.read(b, window=Window(col - enlarged_window // 2, row - enlarged_window // 2,
                                                        enlarged_window, enlarged_window))
-                    window = ndimage.rotate(window, round(point[2], 0))
+                    # window = ndimage.rotate(window, round(point[2], 0))
                     window = crop_center(window, self.window_size, self.window_size)
 
                     # normalisation par bande, moyenne, ecart-type
@@ -133,17 +138,19 @@ class SentinelImage(torch.utils.data.Dataset):
         except:
             print('shit')
 
-        return bands, fid, type  # return tuple with class index as 2nd member
+        return bands, br_id, type  # return tuple with class index as 2nd member
 
-
+type = 'culture'
+nb = 4
 target_bands = [1, 2, 3]
 root = r'D:\deep_learning\images\use'
-points_shp_path = r"D:\deep_learning\samples\sampling\manual_br\br_tests_21m_points_all.shp"
-outdir = r"D:\deep_learning\samples\manual_br\rgb\\"
+points_shp_path = r"D:\deep_learning\samples\sampling\manual_br\mixed_br_21m_points_all.shp"
+outdir = f"D:\deep_learning\samples\manual_br\mixed_br\{type}{nb}\\"
 batch_size = 1
 window_size = 70
 
-dataset = SentinelImage(root, points_shp_path, target_bands, window_size)
+
+dataset = SentinelImage(root, points_shp_path, target_bands, window_size, type)
 
 train_loader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, num_workers=0)
 
@@ -152,12 +159,13 @@ if not os.path.isdir(outdir):
 
 month = '_july'
 count = 0
+br_id = np.arange(0,340)
 for batch_idx, batch in enumerate(train_loader):
-    bands, fid, type = batch
+    bands, br_id, type = batch
     try:
         assert not 0 in bands
 
-        fid = int(fid)
+        fid = int(br_id)
         bands = bands[0].numpy().transpose(2, 0, 1)
 
         # sépare le jeu de données en val et train de manière aléatoire
@@ -165,7 +173,7 @@ for batch_idx, batch in enumerate(train_loader):
         distribution = [0.8, 0.1, 0.1]
         # choice = random.choices(choice_list, distribution)
 
-        samplename = os.path.join(outdir, str(fid) + '_'+str(count) + '.tif')
+        samplename = os.path.join(outdir, str(br_id.item()) + '_' + type[0] + str(count) + '.tif')
         count+=1
 
         if not os.path.isdir(os.path.dirname(samplename)):
