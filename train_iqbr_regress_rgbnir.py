@@ -16,7 +16,7 @@ import torchvision
 import torch.nn as nn
 from torch.utils.data import Dataset
 from models.mvdcnn import MVDCNN
-from models.pytorch_resnet18 import resnet18
+from models.pytorch_resnet18 import resnet18, resnet34
 import albumentations as A
 
 from utils.augmentation import compose_transforms
@@ -87,17 +87,17 @@ torch.backends.cudnn.deterministic = True
 # for confusion matrix
 # classes = ['0','1','2','3','4','5']
 classes = ['1.7-2.1', '2.1-4.0', '4.0-6.0', '6.0-8.0', '8.0-10']
-# with rgb
-# stds = [0.0598, 0.0386, 0.0252] # nouveau jeu de données
-# means =[0.2062, 0.2971,0.3408]  # nouveau jeu de données
-# # with r-g-nir
-# stds = [0.0598, 0.0386, 0.1064] # nouveau jeu de données
-# means =[0.2062, 0.2971,0.4101]  # nouveau jeu de données
-# with rgbnir
-stds_t = [0.0598, 0.0386, 0.0252, 0.1064] # nouveau jeu de données
-means_t =[0.2062, 0.2971,0.3408, 0.4101]  # nouveau jeu de données
-stds = {1:5.8037, 2: 3.8330, 3:5.0484, 4:9.3750}
-means = {1:49.0501, 2:74.7162, 3:86.9113, 4:109.2907}
+
+# ACADIE RGBNIR
+# stds_t = [0.0598, 0.0386, 0.0252, 0.1064] # nouveau jeu de données
+# means_t =[0.2062, 0.2971,0.3408, 0.4101]  # nouveau jeu de données
+
+stds = {1:5.8037, 2: 3.8330, 3:5.0484, 4:9.3750, 5: 15.3279}
+means = {1:49.0501, 2:74.7162, 3:86.9113, 4:109.2907, 5: 33.8298}
+
+# RIVE SUD RGBNIR
+# stds = {1: 9.5343, 2: 7.1521, 3: 6.8503, 4: 10.8153}
+# means = {1: 38.8561, 2: 58.0165, 3: 66.1601, 4: 101.4045}
 
 class PleiadesDataset(torch.utils.data.Dataset):
 
@@ -162,7 +162,10 @@ class PleiadesDataset(torch.utils.data.Dataset):
 
             for key, samp in self.samples.items():
                 if key in self.indices:
-
+                    # if samp[0][0][1] != 0:
+                    #     number = 4
+                    # else:
+                    #     number = 1
                     number = 2
                     # choix de la BR dans le paquet
                     for i in range(number):
@@ -222,6 +225,8 @@ class PleiadesDataset(torch.utils.data.Dataset):
         image_stack = torch.stack(image_stack)
         return image_stack, np.float32(iqbr)  # return tuple with class index as 2nd member
 
+
+
 views = 4
 batch_size = 128
 epochs = 60
@@ -230,8 +235,8 @@ permutations = 1
 bands = [1,2,3]
 
 
-dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnir/", bands = bands, views=1, indices = None, expand=False)
-temp_test_dataset = TestDataset(root=r"D:/deep_learning/samples/jeux_separes/test/all_values_v2_rgbnir/", bands = bands,views=1, indices = None, test_ds=True)
+dataset = PleiadesDataset(root=r"K:/deep_learning/samples/jeux_separes/train/all_values_obcfiltered3_rgbnir/", bands = bands, views=1, indices = None, expand=False)
+temp_test_dataset = TestDataset(root=r"K:/deep_learning/samples/jeux_separes/test/all_values_obcfiltered3_rgbnir/", bands = bands,views=1, indices = None, test_ds=True)
 # train_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/iqbr/train", views=3, transform=base_transforms)
 # val_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/iqbr/val", views=3, transform=base_transforms)
 # test_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/iqbr/test", views=3, transform=base_transforms)
@@ -242,18 +247,18 @@ idx2class = {0: '0', 1: '1', 2: '2', 3: '3', 4: '4'}
 # Separation du jeu de données en train, val, tst
 sample_idxs = np.random.permutation(len(dataset)).tolist()
 # train_sample_count, valid_sample_count = int(0.8 * len(sample_idxs)), int(0.1 * len(sample_idxs))
-train_sample_count = int(0.80 * len(sample_idxs))
+train_sample_count = int(0.8 * len(sample_idxs))
 train_sampler = torch.utils.data.sampler.SubsetRandomSampler(sample_idxs[0:train_sample_count])
-# valid_sampler = torch.utils.data.sampler.SubsetRandomSampler(
-#     sample_idxs[train_sample_count:(train_sample_count + valid_sample_count)])
 valid_sampler = torch.utils.data.sampler.SubsetRandomSampler(sample_idxs[train_sample_count:])
 
-train_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnir/", bands = bands,views=views,indices = train_sampler.indices, expand=True)
-val_dataset = ValidDataset(root=r"D:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnir/", bands = bands,views=views, indices = valid_sampler.indices, expand=True)
+
+train_dataset = PleiadesDataset(root=r"K:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnir/", bands = bands,views=views,indices = train_sampler.indices, expand=True)
+val_dataset = ValidDataset(root=r"K:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnir/", bands = bands,views=views, indices = valid_sampler.indices, expand=True)
 
 test_indices = np.random.permutation(len(temp_test_dataset)).tolist()
 test_sampler = torch.utils.data.sampler.SubsetRandomSampler(test_indices)
-test_dataset = TestDataset(root=r"D:/deep_learning/samples/jeux_separes/test/all_values_v2_rgbnir/", bands = bands,views=views, indices = None, expand=True, test_ds=True)
+test_dataset = TestDataset(root=r"D:/deep_learning/samples/jeux_separes/test/all_values_v2_rgbnirmhc/", bands = bands,views=views, indices = None, expand=True, test_ds=True)
+# test_dataset = val_dataset
 
 train_rsampler = torch.utils.data.sampler.RandomSampler(train_dataset)
 val_rsampler = torch.utils.data.sampler.RandomSampler(val_dataset)
@@ -263,6 +268,7 @@ train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=bat
 # pas de sampling aléatoire car nous avons de multiples passes en val et test, on conserve le même ordre
 valid_loader = torch.utils.data.DataLoader(dataset=val_dataset, batch_size=1, num_workers=0)
 test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=1, num_workers=0)
+# test_loader = valid_loader
 
 # counts = {0:0, 1:0, 2:0, 3:0, 4:0}
 # for idx in train_dataset.indices:
@@ -271,25 +277,36 @@ test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=1, nu
 #     except:
 #         pass
 
-pre_model = resnet18()
-checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/resnet18-5c106cde.pth'))
-pre_model.load_state_dict(checkpoint)
-# pre_model = torchvision.models.resnet18(pretrained=True)
+# pre_model = torchvision.models.vgg16_bn(pretrained=True)
+# checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/resnet18-5c106cde.pth'))
+# checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/resnet34-b627a593.pth'))
+# pre_model.load_state_dict(checkpoint)
+pre_model = torchvision.models.resnet18(pretrained=True)
 
 for param in pre_model.parameters():
-    param.requires_grad = True
-# for param in pre_model.layer2.parameters():
-#     param.requires_grad = True
+    param.requires_grad = False
+# # for param in pre_model.layer2.parameters():
+# #     param.requires_grad = True
 # for param in pre_model.layer3.parameters():
 #     param.requires_grad = True
 for param in pre_model.layer4.parameters():
     param.requires_grad = True
 
-model = MVDCNN(pre_model, 1)
+# pour VGG-16 on ne conserve que les 3 dernières convolutions (le 5e bloc)
+# for idx, param in enumerate(pre_model.parameters()):
+#     if idx < 20:
+#         param.requires_grad = False
 
-# c = 'MVDCNN_2020-12-01-22_10_42'
+# pour voir les couches gelées et non-gelées
+# for idx, name in enumerate(pre_model.named_parameters()):
+#     print(idx, name[0], name[1].requires_grad)
+
+model = MVDCNN(pre_model,'RESNET', 1)
+
+# c = 'MVDCNN_2021-04-22-12_16_53'
 # checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/', c, c + '.pth'))
 # model.load_state_dict(checkpoint['model_state_dict'])
+
 #
 # for p in model.classifier.parameters():
 #     p.requires_grad = True
@@ -330,6 +347,7 @@ best_model_state, best_model_accuracy = None, None  # pour le test final du meil
 last_print_time = time.time()
 
 ### Entrainement du réseau ###
+
 
 for epoch in range(epochs):
 
@@ -470,16 +488,18 @@ for epoch in range(epochs):
     #######################
 
     # on mémorise les poids si le modèle surpasse le meilleur à date
+
     if best_model_accuracy is None or valid_loss < best_model_accuracy:
         best_model_state = model.state_dict()
         best_model_accuracy = valid_loss
         best_epoch = epoch+1
         # best_train_accuracy = train_accuracy
 
+
     scheduler.step()
 
     # if (epoch+1) % 10 == 0:
-    train_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnir/",bands = bands, views=views,
+    train_dataset = PleiadesDataset(root=r"D:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnirmhc/",bands = bands, views=views,
                                     indices=train_sampler.indices, expand=True)
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, sampler=train_rsampler,
                                                num_workers=0)
@@ -580,32 +600,36 @@ fig = plt.figure(figsize=(8, 4))
 ax = fig.add_subplot(1, 1, 1)
 ax.plot(x, train_losses, label='train')
 ax.plot(x, valid_losses, label='valid')
-ax.scatter(best_epoch, test_loss/10, color='red', label='test')
+ax.scatter(best_epoch, test_loss, color='red', label='test')
 ax.set_xlabel('# epochs')
 ax.set_ylabel('Loss (MSE)')
 ax.legend()
 
 ##################### logs  #####################
-# print(class_report)
-#
+
 # graphs
 os.mkdir('checkpoints/' + name)
 plt.savefig('checkpoints/' + name + '/graph_' + name + '.tif')
-#
 
-plt.figure(figsize=(9,6))
 
-plt.scatter(y_true, avg, color = 'black', marker='.')
+fig = plt.figure(figsize=(12,12))
+ax = fig.add_subplot(111)
+ax.set_axisbelow(True)
+plt.grid()
+
+plt.scatter(y_true, avg, color = 'black', marker='.', s=150)
 # plt.errorbar(list(set(y_true)), means, stds, linestyle = 'None',color='black', marker = '.', capsize = 3)
 coef = np.polyfit(y_true, avg, 1)
 slope, intercept, r_value, p_value, std_err = stats.linregress(y_true, avg)
-plt.xlabel('IQBR terrain')
-plt.ylabel('IQBR prédit')
-plt.text(30, 90, f"r2: {round(r_value**2,2)}")
-plt.text(30,85, f"Écart type des erreurs: {np.round(std,2)}")
-plt.text(30,80, f"RMSE: {np.round(RMSE,2)}")
-plt.plot(y_true, intercept + (np.array(y_true) * slope))
-plt.grid()
+plt.xlabel('RSQI - Ground truth', fontsize=18, labelpad=20)
+plt.ylabel('RSQI - Predicted',fontsize=18)
+plt.text(30, 95, f"R$^2$: {round(r_value**2,2)}",fontsize=18,bbox=dict(facecolor='white', edgecolor='white'))
+# plt.text(30,90, f"Écart type des erreurs: {np.round(std,2)}")
+plt.text(30,90, f"RMSE: {np.round(RMSE,2)}", fontsize=18,bbox=dict(facecolor='white', edgecolor='white'))
+plt.plot(y_true, intercept + (np.array(y_true) * slope), color='black')
+plt.xticks([17,30,40,50,60,70,80,90,100], fontsize=18)
+plt.yticks([17,30,40,50,60,70,80,90,100],fontsize=18)
+ax.set_aspect('equal', adjustable='box')
 plt.savefig('checkpoints/' + name + '/scatter_' + name + '.tif')
 # show stuff
 # plt.show()
@@ -614,7 +638,7 @@ plt.savefig('checkpoints/' + name + '/scatter_' + name + '.tif')
 # logs
 window_size = crop_size
 file = 'iqbr_mvdcnn_obcfiltered3_rgbnir_regress.csv'
-comment =  f'FULL FT RGB, {views} vues, single FC, iqbr non modifié, valid et test voient toutes les images, 5 classes pour balance, 2* jeux de données, sched 15-0.2, centercrop, {permutations} permutations, (train val = 80-20), reload train_dataset each 1, MEAN POOL, classes COV, AUGMENT, 1 view par BR - nombre équilibré, paquet attrib à indice, seed = {seed}'
+comment =  f'5-FOLD L4 RGB, {views} vues,  iqbr non modifié, valid et test voient toutes les images, 5 classes pour balance, 2X jeu de donnees, sched 20-0.2, centercrop, {permutations} permutations, (train val = 80-20), reload train_dataset each 1, MEAN POOL, classes COV, AUGMENT, 1 view par BR - nombre équilibré, paquet attrib à indice, seed = {seed}'
 logger(date_time, model_name, model, dataset, window_size, epochs, learning_rate, batch_size, weight_decay, train_loss,
        best_model_accuracy, test_loss,
        0, 0, 0, name, file, save_checkpoint=True,

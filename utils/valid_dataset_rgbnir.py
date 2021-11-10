@@ -10,6 +10,13 @@ import torchvision
 
 import torch
 
+seed = 1
+torch.manual_seed(seed)
+random.seed(seed)
+np.random.seed(seed)
+torch.cuda.manual_seed(seed)
+torch.backends.cudnn.deterministic = True
+
 def CenterCrop(img, dim):
     width, height = img.shape[2], img.shape[1]
     crop_size= dim
@@ -18,8 +25,19 @@ def CenterCrop(img, dim):
     crop_img = img[:, mid_y - ch2:mid_y + ch2, mid_x - cw2:mid_x + cw2]
     return crop_img
 
-stds = {1:5.8037, 2: 3.8330, 3:5.0484, 4:9.3750}
-means = {1:49.0501, 2:74.7162, 3:86.9113, 4:109.2907}
+" pour l'acadie avec MHC"
+stds = {1:5.8037, 2: 3.8330, 3:5.0484, 4:9.3750, 5: 15.3279}
+means = {1:49.0501, 2:74.7162, 3:86.9113, 4:109.2907, 5: 33.8298}
+
+" rgbnir pour jeu de données rive_sud "
+# stds = {1:0.0561, 2:0.0424, 3:0.0331, 4:0.1059}
+# means = {1:0.1524, 2:0.2275, 3:0.2594, 4:0.3977}
+
+# stds = {1: 9.5343, 2: 7.1521, 3: 6.8503, 4: 10.8153}
+# means = {1: 38.8561, 2: 58.0165, 3: 66.1601, 4: 101.4045}
+# moyenne grossière de rive sud et acadie
+# stds = {1: 7.6, 2: 5.49, 3: 5.9, 4: 10.09}
+# means = {1: 43.5, 2: 66., 3: 76.53, 4: 210.69}
 
 class ValidDataset(torch.utils.data.Dataset):
 
@@ -28,7 +46,7 @@ class ValidDataset(torch.utils.data.Dataset):
         self.indices = indices
         self.expand = expand
         self.target_bands = bands
-        self.transform = transform()
+        self.transform = None
         self.views = views
         self.class_names = ['0', '1', '2', '3', '4']
         self.samples_vfs = []
@@ -65,9 +83,12 @@ class ValidDataset(torch.utils.data.Dataset):
 
             # un paquet est attribué à un indice pour éviter les mélanges
             nombre_par_paquet = len(samp) // m
+
             for i in range(m):
-                b = i*nombre_par_paquet
-                img_list.append(samp[b:b+nombre_par_paquet])
+                b = i * nombre_par_paquet
+                img_list.append(samp[b:b + nombre_par_paquet])
+
+
         # del z
         del self.samples_vfs
 
@@ -149,7 +170,7 @@ class TestDataset(torch.utils.data.Dataset):
         self.indices = indices
         self.expand = expand
         self.target_bands = bands
-        self.transform = transform()
+        self.transform = None
         self.views = views
         self.class_names = ['0', '1', '2', '3', '4']
         self.samples_vfs = []
@@ -191,11 +212,16 @@ class TestDataset(torch.utils.data.Dataset):
         if self.expand:
 
             for key, samp in self.samples.items():
+                # si on utilise un jeu séparé par des indices
+                if self.indices != None:
+                    if key in self.indices:
+                        #on prend toutes les images de la bande riveraine
+                        iqbr = np.float32(samp[0][0].split('_')[-1][:-4])
+                        # if iqbr >= 8.0:
 
-                #on prend toutes les images de la bande riveraine
-
-                samples_list.append(samp)
-
+                        samples_list.append(samp)
+                else:
+                    samples_list.append(samp)
             self.samples = samples_list
 
     def __len__(self):
@@ -208,6 +234,8 @@ class TestDataset(torch.utils.data.Dataset):
         else:
             sample = self.samples[idx]
         iqbr = np.float32(sample[0][0].split('_')[-1][:-4]) # la valeur dans le nom en enlevant le .tiff à la fin
+        segment = os.path.basename(sample[0][0]).split('_')[0]
+
         # if iqbr < 8.0:
         #     iqbr = iqbr**(1+((iqbr-8)/60))
         # iqbr = np.float32(sample[0][1])  # any second element
@@ -239,4 +267,4 @@ class TestDataset(torch.utils.data.Dataset):
         # image = torchvision.transforms.functional.to_tensor(np.float32(image))
         # on empile les images/vues
         image_stack = torch.stack(image_stack)
-        return image_stack, np.float32(iqbr)  # return tuple with class index as 2nd member
+        return image_stack, np.float32(iqbr), segment  # return tuple with class index as 2nd member

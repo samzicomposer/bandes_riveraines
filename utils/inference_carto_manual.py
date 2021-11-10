@@ -3,13 +3,17 @@ import os
 import csv
 
 from collections import defaultdict
+import gdal
 from PIL import Image
+from utils.valid_dataset_rgbnir import TestDataset
 from scipy import stats
 
 import torch
 import torchvision
+
 from torch.utils.data import Dataset
 from models.mvdcnn import MVDCNN
+from models.pytorch_resnet18 import resnet18
 
 from utils.augmentation import compose_transforms
 
@@ -39,20 +43,28 @@ def random_pred(classes, prob):
     pred = np.random.choice(classes, p=prob)
     return pred
 
+def CenterCrop(img, dim):
+    width, height = img.shape[2], img.shape[1]
+    crop_size= dim
+    mid_x, mid_y = int(width / 2), int(height / 2)
+    cw2, ch2 = int(crop_size / 2), int(crop_size / 2)
+    crop_img = img[:, mid_y - ch2:mid_y + ch2, mid_x - cw2:mid_x + cw2]
+    return crop_img
 
 # for confusion matrix
 
 classes = ['0', '1', '2', '3', '4']
-# stds = [0.0598, 0.0386, 0.1064]  # nouveau jeu de données juin et full
-# means = [0.2062, 0.2971, 0.4101]  # nouveau jeu de données juin et full
+
 # rgb
-stds = [0.0598, 0.0386, 0.0252]  # nouveau jeu de données
-means = [0.2062, 0.2971, 0.3408]  # nouveau jeu de données
+# stds_t = [0.0598, 0.0386, 0.0252] # nouveau jeu de données
+# means_t =[0.2062, 0.2971,0.3408]
+stds = {1:5.8037, 2: 3.8330, 3:5.0484, 4:9.3750}
+means = {1:49.0501, 2:74.7162, 3:86.9113, 4:109.2907}
 
 
 class PleiadesDataset(torch.utils.data.Dataset):
 
-    def __init__(self, root, views, indices=None, transform=compose_transforms, expand=False):
+    def __init__(self, root, views, bands=None,indices=None, transform=None, expand=False):
         assert os.path.isdir(root)
         self.indices = indices
         self.expand = expand
@@ -60,6 +72,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
         self.views = views
         self.class_names = ['0', '1', '2', '3', '4']
         self.samples_vfs = []
+        self.target_bands = bands
 
         for root, dir, samp in os.walk(root):
             for name in samp:
@@ -105,60 +118,54 @@ class PleiadesDataset(torch.utils.data.Dataset):
             random.shuffle(sample)
         else:
             sample = self.samples[idx]
-
-
-        segment = os.path.basename(sample[0]).split('_')[0]
-
-        #
-        # if len(sample) < self.views:
-        #     # raster_paths = sample
-        #     raster_paths = random.choices(sample, k=self.views)
-        # else:
-        #     # raster_paths =  sample
-        #     raster_paths = random.sample(sample, self.views)
+        segment = sample[0].split('\\')[-1].split('_')[0]
+        # if iqbr < 8.0:
+        #     iqbr = iqbr**(1+((iqbr-8)/60))
+        # iqbr = np.float32(sample[0][1])  # any second element
+        # if iqbr == 0:
+        #     iqbr = 0.8
 
         # image = Image.open(sample[0][0])
         image_stack = []
-        for path in sample:
-            image = Image.open(path)
+        for samp in sample:
+
+            raster_ds = gdal.Open(samp, gdal.GA_ReadOnly)
+            image = []
+            for channel in self.target_bands:
+                image_arr = raster_ds.GetRasterBand(channel).ReadAsArray()
+                assert image_arr is not None, f"Band not found: {channel}"
+
+                image_arr = ((image_arr.astype(np.float32) - means[channel]) / stds[channel]).astype(np.float32)
+
+                image.append(image_arr)
+            image = np.dstack(image)
 
             if self.transform:
                 image = self.transform(image)
+            image = torchvision.transforms.functional.to_tensor(image)
+            image = CenterCrop(image, 46)
+
             image_stack.append(image)
 
-        # convert numpy array to torch tensor
         # image = torchvision.transforms.functional.to_tensor(np.float32(image))
+        # on empile les images/vues
         image_stack = torch.stack(image_stack)
-
-        return image_stack, segment  # return tuple with class index as 2nd member
-
+        return image_stack, segment
 
 # views = 16
 batch_size = 1
 crop_size = 45
 views = 16
 
-base_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomApply([
-    torchvision.transforms.RandomRotation(45),
-], p=0.9),
-    torchvision.transforms.RandomHorizontalFlip(p=0.5),
-    torchvision.transforms.RandomVerticalFlip(p=0.5),
-    torchvision.transforms.ColorJitter(0.2, 0.2, 0.2),
-    torchvision.transforms.CenterCrop(45),
-    # torchvision.transforms.RandomCrop(crop_size),
+pre_model = resnet18()
+model = MVDCNN(pre_model,'RESNET', 1)
 
-    torchvision.transforms.ToTensor(),  # rescale de 0 à 1, de là les valeurs ci-dessous
-    torchvision.transforms.Normalize(mean=(means[0], means[1], means[2]), std=(stds[0], stds[1], stds[2]))
-])
-
-pre_model = torchvision.models.resnet18(pretrained=True)
-model = MVDCNN(pre_model, len(classes))
 
 ###### test du modèle ######
 
 checkpoints = [
 
-    'MVDCNN_2021-03-05-12_41_37'
+    'MVDCNN_2021-04-22-12_16_53'
 ]
 
 # si on calcule le mode
@@ -174,11 +181,11 @@ for c in checkpoints:
         model = model.cuda()
     model.eval()
 
-    for i in range(10):
+    for i in range(1):
 
         test_dataset = PleiadesDataset(
-            root=r"D:\deep_learning\samples\manual_br\rgb\\",
-            views=views, transform=base_transforms, expand=True)
+            root=r"K:\deep_learning\samples\misc\occ_sol_test",
+            views=views, bands=[1,2,3], expand=True)
 
         test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,
                                                   num_workers=0)
@@ -203,14 +210,14 @@ for c in checkpoints:
             # preds = torch.tensor([random_pred(classes_int, prob) for i in range(len(labels))]).view(-1)
             # top_preds = preds
 
-            top_preds = preds.topk(k=1, dim=1)[1].view(-1)
+            # top_preds = preds.topk(k=1, dim=1)[1].view(-1)
             preds = [preds[0].cpu()]
 
             for p, s in zip(preds, segment_id):
                 segment_ids.append(s)
                 y_pred[str(i) + str(views) + c].append(p)
 
-            test_total += top_preds.numel()
+            # test_total += top_preds.numel()
 
         print(f"\nfinal test {i +1}")
 
@@ -220,20 +227,13 @@ for c in checkpoints:
 y_pred_np = []
 for k in y_pred.keys():
     y_pred_np.append(np.array([i.numpy() for i in y_pred[k]]))
-y_pred_np = np.array(y_pred_np)
-# print(diff)
-
-# calcul de la moyenne des predictions
-avg = np.average(y_pred_np, 0)
-# classe ayant la plus haute moyenne de prediction
-max_pred = np.argmax(avg, 1)
-
+y_pred_np = np.array(y_pred_np)[0]
 
 # write predictions to csv
 fields = ['Segment_id', 'Prediction']
-segment_predictions =  [[segment_ids[x]] + [str(max_pred[x])] for x in range(len(segment_ids))]
+segment_predictions =  [[segment_ids[x]] + [str(y_pred_np[x][0])] for x in range(len(segment_ids))]
 
-with open('predictions/' + checkpoints[0] +'manual' + '.csv', 'w', newline='') as f:
+with open('predictions/' + checkpoints[0] +'occ_sol_test' + '.csv', 'w', newline='') as f:
     write = csv.writer(f)
     write.writerow(fields)
     write.writerows(segment_predictions)

@@ -1,5 +1,10 @@
 
 #######################################################################################################
+"""
+Échantillonnage d'images pour des fausses bandes riveraines à partir d'un fichier shp de points.. Par exemple, un vecteur qui passe d'une forêt à une culture.
+Ce script utilise un shp réalisé manuellement.
+"""
+
 import numpy as np
 import os
 
@@ -148,7 +153,6 @@ points_shp_path = r"D:\deep_learning\samples\sampling\manual_br\mixed_br_21m_poi
 outdir = f"D:\deep_learning\samples\manual_br\mixed_br\{type}{nb}\\"
 batch_size = 1
 window_size = 70
-
 
 dataset = SentinelImage(root, points_shp_path, target_bands, window_size, type)
 

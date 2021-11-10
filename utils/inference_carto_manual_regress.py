@@ -1,3 +1,8 @@
+"""
+Ce script crée un .csv à partir des prédictions du modèle, ce qui permet de cartographier les résultats.
+(jointure à partir du fichier de points acadie_full_21m_points.shp)
+
+"""
 import numpy as np
 import os
 import csv
@@ -5,6 +10,8 @@ import csv
 from collections import defaultdict
 from PIL import Image
 from scipy import stats
+from utils.valid_dataset_rgbnir import TestDataset
+from models.pytorch_resnet18 import resnet18
 
 import torch
 import torchvision
@@ -12,16 +19,14 @@ from torch.utils.data import Dataset
 from models.mvdcnn import MVDCNN
 
 from utils.augmentation import compose_transforms
-
-from sklearn.metrics import confusion_matrix, classification_report
-from utils.plot_a_confusion_matrix import plot_confusion_matrix
+import matplotlib.pyplot as plt
 
 import random
 
 use_cuda = torch.cuda.is_available()
 
 # Seeds déterministes
-seed = 99
+seed = 48
 torch.manual_seed(seed)
 random.seed(seed)
 np.random.seed(seed)
@@ -43,12 +48,13 @@ def random_pred(classes, prob):
 # for confusion matrix
 
 classes = ['0', '1', '2', '3', '4']
-# stds = [0.0598, 0.0386, 0.1064]  # nouveau jeu de données juin et full
-# means = [0.2062, 0.2971, 0.4101]  # nouveau jeu de données juin et full
-# rgb
-stds = [0.0598, 0.0386, 0.0252]  # nouveau jeu de données
-means = [0.2062, 0.2971, 0.3408]  # nouveau jeu de données
+#  rgb
+# stds = [0.0598, 0.0386, 0.0252]  # nouveau jeu de données
+# means = [0.2062, 0.2971, 0.3408]  # nouveau jeu de données
 
+# rg-nir
+# stds = [0.0598, 0.0386, 0.1064] # nouveau jeu de données juin et full
+# means =[0.2062, 0.2971,0.4101]  # nouveau jeu de données juin et full
 
 class PleiadesDataset(torch.utils.data.Dataset):
 
@@ -61,15 +67,19 @@ class PleiadesDataset(torch.utils.data.Dataset):
         self.class_names = ['0', '1', '2', '3', '4']
         self.samples_vfs = []
 
-        for root, dir, samp in os.walk(root):
-            for name in samp:
-                self.samples_vfs.append((os.path.join(root, name)))
-
+        for class_idx, class_set in enumerate(self.class_names):
+            for class_name in class_set:
+                class_dir = root + "/" + class_name
+                if os.path.isdir(class_dir):
+                    image_paths = [os.path.join(class_dir, p) for p in os.listdir(class_dir)]
+                    for p in image_paths:
+                        if p.endswith(".tif"):
+                            self.samples_vfs.append((p, int(class_name)))
 
         # dictionnaire classant les images par segment d'iqbr
         image_dict1 = defaultdict(list)
         for img_path in self.samples_vfs:
-            img = os.path.basename(img_path)
+            img = os.path.basename(img_path[0])
             key = str(img.split('_')[0])
             image_dict1[key].append(img_path)
 
@@ -83,6 +93,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
             num += 1
 
         # samples that will be used
+
         self.samples = image_dict
 
         # version avec les vues assemblées d'avance
@@ -90,9 +101,17 @@ class PleiadesDataset(torch.utils.data.Dataset):
         if self.expand:
 
             for key, samp in self.samples.items():
-                samples_list.append(samp)
+                # if key in self.indices:
                 # random.shuffle(samp)
+
+                # if len(samp)//self.views < 1:
+                samples_list.append(samp)
                 # samples_list.append(random.choices(samp, k=self.views))
+                # else:
+                #     for i in range(len(samp)//self.views):
+                #         b = i*self.views
+                #         # samples_list.append(random.sample(s, k=self.views))
+                #         samples_list.append(samp[b:b+self.views])
 
             self.samples = samples_list
 
@@ -106,9 +125,9 @@ class PleiadesDataset(torch.utils.data.Dataset):
         else:
             sample = self.samples[idx]
 
-
-        segment = os.path.basename(sample[0]).split('_')[0]
-
+        # iqbr = sample[0][1]  # any second element
+        iqbr = np.float32(sample[0][0].split('_')[-1][:-4])  # la valeur dans le nom en enlevant le .tiff à la fin
+        iqbr = round(iqbr,1)
         #
         # if len(sample) < self.views:
         #     # raster_paths = sample
@@ -120,7 +139,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
         # image = Image.open(sample[0][0])
         image_stack = []
         for path in sample:
-            image = Image.open(path)
+            image = Image.open(path[0])
 
             if self.transform:
                 image = self.transform(image)
@@ -129,44 +148,46 @@ class PleiadesDataset(torch.utils.data.Dataset):
         # convert numpy array to torch tensor
         # image = torchvision.transforms.functional.to_tensor(np.float32(image))
         image_stack = torch.stack(image_stack)
-
-        return image_stack, segment  # return tuple with class index as 2nd member
+        return image_stack, iqbr  # return tuple with class index as 2nd member
 
 
 # views = 16
 batch_size = 1
-crop_size = 45
-views = 16
+crop_size = 46
 
-base_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomApply([
-    torchvision.transforms.RandomRotation(45),
-], p=0.9),
-    torchvision.transforms.RandomHorizontalFlip(p=0.5),
-    torchvision.transforms.RandomVerticalFlip(p=0.5),
-    torchvision.transforms.ColorJitter(0.2, 0.2, 0.2),
-    torchvision.transforms.CenterCrop(45),
-    # torchvision.transforms.RandomCrop(crop_size),
-
-    torchvision.transforms.ToTensor(),  # rescale de 0 à 1, de là les valeurs ci-dessous
-    torchvision.transforms.Normalize(mean=(means[0], means[1], means[2]), std=(stds[0], stds[1], stds[2]))
-])
-
-pre_model = torchvision.models.resnet18(pretrained=True)
-model = MVDCNN(pre_model, 1)
+# pre_model = torchvision.models.vgg16()
+pre_model = resnet18()
+# model = MVDCNN(pre_model, len(classes))
+model = MVDCNN(pre_model,'RESNET', 1)
 
 ###### test du modèle ######
 
 checkpoints = [
 
-    'MVDCNN_2021-03-17-11_24_55'
+    'MVDCNN_2021-06-11-09_29_07'
 ]
+
+test_dataset = TestDataset(
+        # r"D:\deep_learning\samples\jeux_separes\train\rive_sud_rgbnir\\",
+        # r"D:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnir/",
+        # r"K:\deep_learning\samples\misc\occ_sol_test",
+        r"K:\deep_learning\samples\jeux_separes\test\all_values_obcfiltered3_rgbnir",
+        # r"D:\deep_learning\samples\manual_br\mixed_br_intra\\",
+        bands = [1,2,3],
+        views=16,  expand=True)
+
+test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,num_workers=0)
 
 # si on calcule le mode
 y_pred = defaultdict(list)
 
+prob = np.array([94, 122, 43, 39, 79]) / 377.0
+classes_int = [0, 1, 2, 3, 4]
+
 for c in checkpoints:
     print(c)
-    # checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/', 'MVDCNN_2021-02-09-14_02_55', c, c[:-3]+'.pth'))
+
+    # checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/','MVDCNN_2021-02-09-10_30_53', c, c[:-3] + '.pth'))
     checkpoint = torch.load(os.path.join(r'I:/annotation/checkpoints/', c, c + '.pth'))
 
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -174,59 +195,58 @@ for c in checkpoints:
         model = model.cuda()
     model.eval()
 
-    for i in range(5):
+    views = [16]
 
-        test_dataset = PleiadesDataset(
-            root=r"D:\deep_learning\samples\manual_br\rgb\\",
-            # root=r"D:/deep_learning/samples/jeux_separes/test/all_values_v2_rgb/",
-            views=views, transform=base_transforms, expand=True)
+    segment_ids = []
+    for i in range(1):
 
-        test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,
-                                                  num_workers=0)
         # enlever si on calcule le mode
         # y_pred = defaultdict(list)
 
-        test_correct, test_total = 0, 0
+        test_ecart, test_total = [], 0
         y_true = []
-        segment_ids = []
         for minibatch in test_loader:
 
             images = minibatch[0]  # rappel: en format BxCxHxW
-            segment_id = minibatch[1]
+            labels = minibatch[1]  # rappel: en format Bx1
+            segment_id = minibatch[2]
             # images = torch.stack([item for sublist in images for item in sublist])
 
             if use_cuda:
                 images = images.to(device)
+                labels = labels.to(device)
             with torch.no_grad():
                 preds = model(images).view(-1)
 
             # pour les predictions random
             # preds = torch.tensor([random_pred(classes_int, prob) for i in range(len(labels))]).view(-1)
-            # top_preds = preds
+            top_preds = preds
 
+            # top_preds = preds.topk(k=1, dim=1)[1].view(-1)
             preds = [preds[0].cpu()]
 
-            for p, s in zip(preds, segment_id):
-                segment_ids.append(s)
+            for p, l, s in zip(preds, labels, segment_id):
+                y_true.append(l)
                 y_pred[str(i) + str(views) + c].append(p)
+                segment_ids.append(s)
+                test_ecart.append(abs(p-l).item())
+            test_total += labels.numel()
 
-            test_total += 1
-
-        print(f"\nfinal test {i +1}")
+        test_ecart = np.array(test_ecart)*10
+        test_accuracy = np.sqrt(np.mean(test_ecart**2) )
+        print(f"\nfinal test {i}: RMSE = {test_accuracy:0.4f}\n")
 
 ##################### confusion matrix #####################
-
 # conversion des prediction en matrice numpy
 y_pred_np = []
 for k in y_pred.keys():
     y_pred_np.append(np.array([i.numpy() for i in y_pred[k]]))
 y_pred_np = np.array(y_pred_np)
-# print(diff)
 
 # calcul de la moyenne des predictions
 avg = np.average(y_pred_np, 0)
-avg[avg<1.7] = 1.7
-avg[avg>10.0] = 10.0
+# avg[avg<1.7] = 1.7
+# avg[avg>10.0] = 10.0
 # classe ayant la plus haute moyenne de prediction
 # rounded_pred = np.round(avg, 0)
 
@@ -235,7 +255,8 @@ avg[avg>10.0] = 10.0
 fields = ['Segment_id', 'Prediction']
 segment_predictions =  [[segment_ids[x]] + [avg[x]] for x in range(len(segment_ids))]
 
-with open('predictions/' + checkpoints[0] +'manual_set' + '.csv', 'w', newline='') as f:
+with open('predictions/' + checkpoints[0] +'article_2021-06-11-09_29_07' + '.csv', 'w', newline='') as f:
     write = csv.writer(f)
     write.writerow(fields)
     write.writerows(segment_predictions)
+

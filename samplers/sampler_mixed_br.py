@@ -1,5 +1,9 @@
 # https://glenbambrick.com/2017/09/15/osgp-create-points-along-line/
 
+"""
+Création de points à différentes distances de la rive. ce script a été utilisé
+pour le test sur la variabilité intra-image de l'occupation du sol.
+"""
 from osgeo import ogr
 from shapely.geometry import LineString, Point
 from shapely import wkt, ops
@@ -42,7 +46,7 @@ def calculateAngle(point1, point2):
 driver = ogr.GetDriverByName('ESRI Shapefile')
 ################################################################################
 ## path to the
-shp_droite = r"D:/deep_learning/samples/sampling/manual_br/mixed_br.shp"
+shp_droite = r"D:/deep_learning/samples/sampling/manual_br/mixed_br_intra.shp"
 
 dirname = os.path.dirname(shp_droite)
 ## open the GDB in write mode (1)
@@ -55,12 +59,12 @@ input_lyr = ds.GetLayer()
 # pour les dernières tuiles 50x50
 distance = 21
 
-distance_paral = 0
+distance_paral = [-11.5,-5.75,0,5.75,11.5]
 
 ## output point fc name
 output_paral = r"D:/deep_learning/samples/sampling/manual_br/{}_parall_{}m".format(os.path.basename(shp_droite[:-4]), distance_paral)
 ## output point fc name
-output_pts = r"D:/deep_learning/samples/sampling/manual_br/{}_{}m_points".format(os.path.basename(shp_droite[:-4]), distance)
+output_pts = r"D:/deep_learning/samples/sampling/manual_br/{}_{}_left{}m_points".format(os.path.basename(shp_droite[:-4]),'all', distance)
 
 ################################################################################
 
@@ -108,19 +112,22 @@ for line1 in tqdm(lyr1):
 
 # génère des lignes parallèles à celle du shp
 linestring_list = []
-for ln in tqdm(pairlist):
-    # numero station
-    try:# to shapely object
-        line_geom_side1 = ln[0].geometry().ExportToWkt()
+for dist in distance_paral:
+    for ln in tqdm(pairlist):
+        # numero station
+        try:# to shapely object
+            line_geom_side1 = ln[0].geometry().ExportToWkt()
 
-        shapely_line1 = wkt.loads(line_geom_side1)
-        paral_right = shapely_line1.parallel_offset(distance_paral, 'right', join_style=2)
-        linestring_list.append({'geom': paral_right, 'fid': ln[0].GetField('id'), 'type': ln[0].GetField('classe')})
+            shapely_line1 = wkt.loads(line_geom_side1)
+            paral_right = shapely_line1.parallel_offset(dist, 'left', join_style=2)
+            # linestring_list.append({'geom': paral_right, 'fid': ln[0].GetField('id'), 'type': ln[0].GetField('classe')})
+            linestring_list.append({'geom': paral_right, 'fid': ln[0].GetField('id')})
 
-    except:
-        pass
+        except:
+            pass
 
 ## Génère des points sur les lignes parallèles créées précédemment
+count = 0
 for ln in tqdm(linestring_list):
     ## list to hold all the point coords
     list_points = []
@@ -179,12 +186,12 @@ for ln in tqdm(linestring_list):
         feat.SetGeometry(pnt)
         feat.SetField("Angle", angle)
 
-        feat.SetField("fid", ln['fid'])
-        feat.SetField("type", ln['type'])
+        feat.SetField("fid", ln['fid']+count)
+        # feat.SetField("type", ln['type'])
 
         ## add the point feature to the output.
         out_lyr.CreateFeature(feat)
-
+    count += 10
 
 del ds, out_lyr #, out_lyr_paral
 

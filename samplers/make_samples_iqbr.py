@@ -43,11 +43,12 @@ class SentinelImage(torch.utils.data.Dataset):
         images = []
         for r, d, f in os.walk(root):
             for file in f:
+                # if 'acadie_full.tif' == file:
                 if 'acadie_full.tif' == file:
                     images.append(os.path.join(r, file))
 
         # used for normalization
-        self.stats = {1: [16.3727, 51.6343], 2: [12.4172, 76.0894],  3: [11.2851, 88.804], 4: [28.6557, 102.264 ], 5:[16.0906, 6.85636]}
+        # self.stats = {1: [16.3727, 51.6343], 2: [12.4172, 76.0894],  3: [11.2851, 88.804], 4: [28.6557, 102.264 ], 5:[16.0906, 6.85636]}
         self.opened_images = []  # objets de fichiers ouverts
         for i in images:
             src = rasterio.open(i)
@@ -110,7 +111,7 @@ class SentinelImage(torch.utils.data.Dataset):
         fid = point[4]
         diff = point[7]
         obc_iqbr = point[8]
-        test_ds = point[6] if point[6]==1 else 0
+        test_ds = point[6] if point[6]==2 else 0
         shapely_point = wkt.loads(point[0])
         x, y = shapely_point.x, shapely_point.y
 
@@ -133,7 +134,7 @@ class SentinelImage(torch.utils.data.Dataset):
         # else:
         #     iqbr = 4
 
-        # classes Covabar
+        # classes Covabar pour le tri des samples en 5 répertoires
         if iqbr_value <= 2.10:
             iqbr = 0
         elif 2.10 < iqbr_value <= 4.0:
@@ -172,9 +173,13 @@ class SentinelImage(torch.utils.data.Dataset):
 
 
 target_bands = [1,2,3,4]
-root = r'D:\deep_learning\images\use'
-points_shp_path = r"D:\deep_learning\samples\sampling\acadie_full_21m_points.shp"
-outdir = r"D:\deep_learning\samples\jeux_separes\test\all_values_v2_rgbnir\\"
+# root = r'D:\deep_learning\images\use'
+root = r'K:\deep_learning\images'
+points_shp_path = r"K:\deep_learning\sampling\acadie_full_21m_points.shp"
+# points_shp_path = r"D:\deep_learning\samples\sampling\rive_sud\IQBRG_utm_21m_points_all_iqbr.shp"
+
+outdir = r"K:\deep_learning\samples\jeux_separes\test\all_values_obcfiltered3_rgbnir\\"
+# outdir = r"D:\deep_learning\samples\jeux_separes\train\rive_sud_rgbnir\\"
 batch_size = 1
 window_size = 70
 
@@ -217,5 +222,5 @@ for batch_idx, batch in enumerate(train_loader):
                            ) as dst:
             for k in range(4):
                 dst.write(bands[k], indexes=k+1)
-    except:
+    except :
         pass

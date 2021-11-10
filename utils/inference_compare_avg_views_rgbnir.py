@@ -1,24 +1,31 @@
 import numpy as np
 import os
-
 from collections import defaultdict
 from PIL import Image
-from scipy import stats
 
 import torch
 import torchvision
-import shutil
-import torch.nn as nn
+from models.pytorch_resnet18 import resnet18
+
 from torch.utils.data import Dataset
+from utils.valid_dataset_rgbnir import TestDataset
 from models.mvdcnn import MVDCNN
+from scipy import stats
+
 from utils.augmentation import compose_transforms
+from utils.logger import logger
+
+from sklearn.metrics import confusion_matrix, classification_report
+from utils.plot_a_confusion_matrix import plot_confusion_matrix
 import matplotlib.pyplot as plt
+from scipy import ndimage
+
 import random
 
 use_cuda = torch.cuda.is_available()
 
 # Seeds déterministes
-seed = 48
+seed = 99
 torch.manual_seed(seed)
 random.seed(seed)
 np.random.seed(seed)
@@ -36,21 +43,6 @@ def random_pred(classes, prob):
     pred = np.random.choice(classes, p=prob)
     return pred
 
-
-# for confusion matrix
-
-classes = ['0', '1', '2', '3', '4']
-# rgb
-stds = [0.0598, 0.0386, 0.0252]  # nouveau jeu de données
-means = [0.2062, 0.2971, 0.3408]  # nouveau jeu de données
-
-global ident
-ident = 0
-
-# rg-nir
-# stds = [0.0598, 0.0386, 0.1064] # nouveau jeu de données juin et full
-# means =[0.2062, 0.2971,0.4101]  # nouveau jeu de données juin et full
-
 class PleiadesDataset(torch.utils.data.Dataset):
 
     def __init__(self, root, views, indices=None, transform=compose_transforms, expand=False):
@@ -60,9 +52,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
         self.transform = transform
         self.views = views
         self.class_names = ['0', '1', '2', '3', '4']
-        self.samples_vfs = defaultdict(list)
-        self.ident = ident
-        all_samples = []
+        self.samples_vfs = []
 
         for class_idx, class_set in enumerate(self.class_names):
             for class_name in class_set:
@@ -71,16 +61,14 @@ class PleiadesDataset(torch.utils.data.Dataset):
                     image_paths = [os.path.join(class_dir, p) for p in os.listdir(class_dir)]
                     for p in image_paths:
                         if p.endswith(".tif"):
-                            self.samples_vfs[class_name].append(p)
-                            all_samples.append(p)
+                            self.samples_vfs.append((p, int(class_name)))
 
         # dictionnaire classant les images par segment d'iqbr
-        image_dict1 = {key: defaultdict(list) for key, item in self.samples_vfs.items()}
-        for k in self.samples_vfs.keys():
-            for img_paths in self.samples_vfs[k]:
-                img = os.path.basename(img_paths)
-                key = str(img.split('_')[0])
-                image_dict1[k][key].append(img_paths)
+        image_dict1 = defaultdict(list)
+        for img_path in self.samples_vfs:
+            img = os.path.basename(img_path[0])
+            key = str(img.split('_')[0])
+            image_dict1[key].append(img_path)
 
         del self.samples_vfs
 
@@ -93,38 +81,26 @@ class PleiadesDataset(torch.utils.data.Dataset):
 
         # samples that will be used
 
-        self.samples = image_dict1
+        self.samples = image_dict
 
         # version avec les vues assemblées d'avance
-        samples_list1 = []
-        samples_list2 = []
+        samples_list = []
         if self.expand:
 
+            for key, samp in self.samples.items():
+                # if key in self.indices:
+                # random.shuffle(samp)
 
-            for r in range(15):
+                # if len(samp)//self.views < 1:
+                samples_list.append(samp)
+                # samples_list.append(random.choices(samp, k=self.views))
+                # else:
+                #     for i in range(len(samp)//self.views):
+                #         b = i*self.views
+                #         # samples_list.append(random.sample(s, k=self.views))
+                #         samples_list.append(samp[b:b+self.views])
 
-                for key, samp in image_dict1['0'].items():
-                    count = 0
-                    part1 = random.choices(samp, k=4)
-                    if count <10:
-                        samples_list1.append(part1)
-                        count+=1
-
-                for key, samp in image_dict1['4'].items():
-                    count = 0
-                    part2 = random.choices(samp, k=4)
-                    if count < 10:
-                        samples_list2.append(part2)
-                        count+=1
-
-            samples_list = [p1 + p2 for p1,p2 in zip(samples_list1,samples_list2)]
-
-
-        else:
-            samples_list = []
-            for r in range(100):
-                samples_list.append(random.sample(all_samples, 4))
-        self.samples = samples_list
+            self.samples = samples_list
 
     def __len__(self):
         return len(self.samples)
@@ -136,10 +112,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
         else:
             sample = self.samples[idx]
 
-        # iqbr = sample[0][1]  # any second element
-        iqbr = np.mean([np.float32(s.split('_')[-1][:-4]) for s in sample])  # la valeur dans le nom en enlevant le .tiff à la fin
-        self.ident +=1
-        # iqbr = round(iqbr, 1)
+        iqbr = sample[0][1]  # any second element
 
         #
         # if len(sample) < self.views:
@@ -152,7 +125,7 @@ class PleiadesDataset(torch.utils.data.Dataset):
         # image = Image.open(sample[0][0])
         image_stack = []
         for path in sample:
-            image = Image.open(path)
+            image = Image.open(path[0])
 
             if self.transform:
                 image = self.transform(image)
@@ -161,39 +134,27 @@ class PleiadesDataset(torch.utils.data.Dataset):
         # convert numpy array to torch tensor
         # image = torchvision.transforms.functional.to_tensor(np.float32(image))
         image_stack = torch.stack(image_stack)
-        return image_stack, iqbr, self.ident, sample  # return tuple with class index as 2nd member
+        return image_stack, iqbr  # return tuple with class index as 2nd member
 
 
 views = 1
 batch_size = 1
 crop_size = 45
-out_folder =  r"D:\deep_learning\samples\jeux_separes\test\ecarts_compare\\"
 
-base_transforms = torchvision.transforms.Compose([torchvision.transforms.RandomApply([
-    torchvision.transforms.RandomRotation(45),
-], p=0.9),
-    torchvision.transforms.RandomHorizontalFlip(p=0.5),
-    torchvision.transforms.RandomVerticalFlip(p=0.5),
-    torchvision.transforms.ColorJitter(0.2,0.2,0.2),
-    torchvision.transforms.CenterCrop(crop_size),
-    # torchvision.transforms.Resize(64),
+pre_model = torchvision.models.vgg16_bn()
 
-    torchvision.transforms.ToTensor(),  # rescale de 0 à 1, de là les valeurs ci-dessous
-    torchvision.transforms.Normalize(mean=(means[0], means[1], means[2]), std=(stds[0], stds[1], stds[2]))
-])
-pre_model = torchvision.models.resnet18(pretrained=True)
-model = MVDCNN(pre_model,'RESNET', 1)
+model = MVDCNN(pre_model,'VGG16', 1)
 
 ###### test du modèle ######
 
 checkpoints = [
 
-    'MVDCNN_2021-06-11-09_29_07'
+    'MVDCNN_2021-04-28-16_11_18'
 ]
 
-test_dataset = PleiadesDataset(
-        root=r"D:/deep_learning/samples/jeux_separes/test/all_values_v2_rgb/",
-        views=1, transform=base_transforms, expand=False)
+test_dataset = TestDataset(
+        r"D:/deep_learning/samples/jeux_separes/test/all_values_v2_rgbnir/", bands = [1,2,3],
+        views=16,  expand=True)
 
 test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,num_workers=0)
 
@@ -221,17 +182,14 @@ for c in checkpoints:
         model = model.cuda()
     model.eval()
 
-    for i in range(5):
+    for i in range(1):
 
         # enlever si on calcule le mode
         # y_pred = defaultdict(list)
 
-        test_ecart, test_total = [], 0
+        test_correct, test_total = 0, 0
         y_true = []
         for minibatch in test_loader:
-
-            identifier = minibatch[2]
-            samp_paths = minibatch[3]
 
             view_features = []
             if len(minibatch[0][0]) < views:
@@ -253,45 +211,23 @@ for c in checkpoints:
                 images = images.to(device)
                 labels = labels.to(device)
             with torch.no_grad():
-                preds = model(images).view(-1)
+                preds = model(images)
 
-            # la meilleure prediction pour chacune des vues
-            # top_preds = preds.topk(k=1, dim=1)[1].view(-1)
             # la classe moyenne predite par les assemblages de vues (toute la bande)
             avg_prediction = [torch.mean(preds)]
-            avg_prediction= [avg_prediction[0].cpu()]
 
             for p, l in zip(avg_prediction, labels):
                 y_true.append(l)
                 y_pred[str(i) + str(views) + c].append(p)
-                ecart = abs(p - l).item()
 
-                # on copie les images dont les erreurs sont élevées
-                if ecart > 1.2:
 
-                    for s in samp_paths:
-                        samplename = str(identifier.item()) +'_L' + str(np.round(labels.item(),2)) + '_P' + str(np.round(p.item(),2)) + '_' + os.path.basename(s[0])
-                        out_name = os.path.join(out_folder, str(np.round(ecart,2)),samplename)
-
-                        if not os.path.isdir(os.path.dirname(out_name)):
-                            os.mkdir(os.path.dirname(out_name))
-
-                        shutil.copyfile(s[0],out_name)
-
-                test_ecart.append(ecart)
-            # on arrondi la moyenne à la classe la plus près pour le test de classification
-
-            test_total += labels.numel()
-        test_ecart = np.array(test_ecart)*10
-        test_accuracy = np.sqrt(np.mean(test_ecart**2))
-        print(f"\nfinal test {i}: RMSE = {test_accuracy:0.4f}\n")
 
 ##################### confusion matrix #####################
 
 # conversion des prediction en matrice numpy
 y_pred_np = []
 for k in y_pred.keys():
-    y_pred_np.append(np.array([i.numpy() for i in y_pred[k]]))
+    y_pred_np.append(np.array([i.cpu().numpy() for i in y_pred[k]]))
 y_pred_np = np.array(y_pred_np)
 
 # calcul de la moyenne des predictions
@@ -318,19 +254,27 @@ for cl in set(y_true):
 
 stds = np.array(stds)
 stds[stds==0.0] = 'NaN'
-plt.figure(figsize=(8,5))
 
-plt.scatter(y_true, avg, color = 'black', marker='.')
+fig = plt.figure(figsize=(12,12))
+ax = fig.add_subplot(111)
+ax.set_axisbelow(True)
+plt.grid()
+
+plt.scatter(y_true, avg, color = 'black', marker='.', s=150)
 # plt.errorbar(list(set(y_true)), means, stds, linestyle = 'None',color='black', marker = '.', capsize = 3)
 coef = np.polyfit(y_true, avg, 1)
 slope, intercept, r_value, p_value, std_err = stats.linregress(y_true, avg)
-plt.xlabel('IQBR terrain')
-plt.ylabel('IQBR prédit')
-plt.text(30, 95, f"r2: {round(r_value**2,2)}")
-plt.text(30,90, f"Écart type des erreurs: {np.round(std,2)}")
-plt.text(30,85, f"RMSE: {np.round(rmse,2)}")
-plt.plot(y_true, intercept + (np.array(y_true) * slope))
-plt.grid()
-plt.xticks(np.arange(15, 105, 5))
-plt.ylim(15,105.0)
+print(f"slope: {slope}, intercept: {intercept}")
+plt.xlabel('RSQI - Ground truth', fontsize=18, labelpad=20)
+plt.ylabel('RSQI - Predicted',fontsize=18)
+plt.text(30, 95, f"R$^2$: {round(r_value**2,2)}",fontsize=18,bbox=dict(facecolor='white', edgecolor='white'))
+# plt.text(30,90, f"Écart type des erreurs: {np.round(std,2)}")
+plt.text(30,90, f"RMSE: {np.round(rmse,2)}", fontsize=18,bbox=dict(facecolor='white', edgecolor='white'))
+plt.plot(y_true, intercept + (np.array(y_true) * slope), color='black')
+plt.xticks([17,30,40,50,60,70,80,90,100], fontsize=18)
+plt.yticks([17,30,40,50,60,70,80,90,100],fontsize=18)
+ax.set_aspect('equal', adjustable='box')
+
+# plt.xticks(np.arange(min(y_true), max(y_true)+1, 0.5))
+# plt.xlim(1.7,10.0)
 plt.show()

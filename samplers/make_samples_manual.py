@@ -107,7 +107,7 @@ class SentinelImage(torch.utils.data.Dataset):
         point = self.points_list[idx]
 
         fid = point[1]
-        type = point[3]
+        # type = point[3]
         shapely_point = wkt.loads(point[0])
         x, y = shapely_point.x, shapely_point.y
 
@@ -133,15 +133,19 @@ class SentinelImage(torch.utils.data.Dataset):
         except:
             print('shit')
 
-        return bands, fid, type  # return tuple with class index as 2nd member
+        return bands, fid  # return tuple with class index as 2nd member
 
 
 target_bands = [1, 2, 3]
-root = r'D:\deep_learning\images\use'
-points_shp_path = r"D:\deep_learning\samples\sampling\manual_br\br_tests_21m_points_all.shp"
-outdir = r"D:\deep_learning\samples\manual_br\rgb\\"
+root = r'K:\deep_learning\images'
+
+points_shp_path = r"K:\deep_learning\sampling\shapes\occ_sol_test_21m_points_all.shp"
+
+outdir = r"K:\deep_learning\samples\misc\occ_sol_test"
 batch_size = 1
 window_size = 70
+
+
 
 dataset = SentinelImage(root, points_shp_path, target_bands, window_size)
 
@@ -150,14 +154,14 @@ train_loader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_siz
 if not os.path.isdir(outdir):
     os.mkdir(outdir)
 
-month = '_july'
 count = 0
 for batch_idx, batch in enumerate(train_loader):
-    bands, fid, type = batch
+    bands, fid = batch
     try:
         assert not 0 in bands
 
         fid = int(fid)
+        # fid = count_br
         bands = bands[0].numpy().transpose(2, 0, 1)
 
         # sépare le jeu de données en val et train de manière aléatoire
@@ -179,5 +183,7 @@ for batch_idx, batch in enumerate(train_loader):
                            ) as dst:
             for k in range(3):
                 dst.write(bands[k], indexes=k + 1)
+
+
     except:
         pass

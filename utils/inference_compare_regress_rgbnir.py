@@ -1,3 +1,8 @@
+"""
+Ce script test les modèles sur le jeu de test et crée les graphiques.
+
+"""
+
 import numpy as np
 import os
 import time
@@ -10,6 +15,7 @@ from utils.valid_dataset_rgbnir import TestDataset
 from models.pytorch_resnet18 import resnet18
 
 import torch
+import torchvision
 from torch.utils.data import Dataset
 from models.mvdcnn import MVDCNN
 
@@ -43,10 +49,9 @@ def random_pred(classes, prob):
 # for confusion matrix
 
 classes = ['0', '1', '2', '3', '4']
-# rgb
-stds = [0.0598, 0.0386, 0.0252]  # nouveau jeu de données
-means = [0.2062, 0.2971, 0.3408]  # nouveau jeu de données
-
+#  rgb
+# stds = [0.0598, 0.0386, 0.0252]  # nouveau jeu de données
+# means = [0.2062, 0.2971, 0.3408]  # nouveau jeu de données
 
 # rg-nir
 # stds = [0.0598, 0.0386, 0.1064] # nouveau jeu de données juin et full
@@ -151,19 +156,25 @@ class PleiadesDataset(torch.utils.data.Dataset):
 batch_size = 1
 crop_size = 46
 
+# pre_model = torchvision.models.vgg16()
 pre_model = resnet18()
 # model = MVDCNN(pre_model, len(classes))
-model = MVDCNN(pre_model, 1)
+model = MVDCNN(pre_model,'RESNET', 1)
 
 ###### test du modèle ######
 
 checkpoints = [
 
-    'MVDCNN_2021-04-22-12_16_53'
+    'MVDCNN_2021-06-12-23_08_38'
+    # 'MVDCNN_2021-06-01-13_35_23'
+
 ]
 
 test_dataset = TestDataset(
-        r"D:/deep_learning/samples/jeux_separes/test/all_values_v2_rgbnir/", bands = [1,2,3],
+        r"K:\deep_learning\samples\jeux_separes\test\all_values_obcfiltered3_rgbnir",
+        # r"D:/deep_learning/samples/jeux_separes/train/all_values_v2_rgbnir/",
+        # r"D:\deep_learning\samples\manual_br\mixed_br_intra\\",
+        bands = [1,1,1],
         views=16,  expand=True)
 
 test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size,num_workers=0)
@@ -187,7 +198,7 @@ for c in checkpoints:
 
     views = [16]
 
-    for i in range(3):
+    for i in range(1):
 
         # enlever si on calcule le mode
         # y_pred = defaultdict(list)
@@ -234,7 +245,7 @@ y_pred_np = np.array(y_pred_np)
 y_true = np.array([x.item() for x in y_true])*10
 avg = np.average(y_pred_np, 0)*10
 # avg[avg<17] = 17
-avg[avg>100] = 100
+# avg[avg>100] = 100
 # y_true[y_true==40] = 80
 avg_error = np.round(np.mean(abs(avg-y_true)),3)
 # classe ayant la plus haute moyenne de prediction
@@ -254,19 +265,28 @@ for cl in set(y_true):
 
 stds = np.array(stds)
 stds[stds==0.0] = 'NaN'
-plt.figure(figsize=(8,5))
 
-plt.scatter(y_true, avg, color = 'black', marker='.')
+fig = plt.figure(figsize=(12,12))
+ax = fig.add_subplot(111)
+ax.set_axisbelow(True)
+plt.grid()
+
+plt.scatter(y_true, avg, color = 'black', marker='.', s=150)
 # plt.errorbar(list(set(y_true)), means, stds, linestyle = 'None',color='black', marker = '.', capsize = 3)
 coef = np.polyfit(y_true, avg, 1)
 slope, intercept, r_value, p_value, std_err = stats.linregress(y_true, avg)
-plt.xlabel('IQBR terrain')
-plt.ylabel('IQBR prédit')
-plt.text(30, 95, f"r2: {round(r_value**2,2)}")
-plt.text(30,90, f"Écart type des erreurs: {np.round(std,2)}")
-plt.text(30,85, f"RMSE: {np.round(rmse,2)}")
-plt.plot(y_true, intercept + (np.array(y_true) * slope))
-plt.grid()
+print(f"slope: {slope}, intercept: {intercept}")
+plt.xlabel('Actual RSQI', fontsize=18, labelpad=20)
+plt.ylabel('Predicted RSQI',fontsize=18)
+plt.text(30, 95, f"R$^2$: {round(r_value**2,3)}",fontsize=18,bbox=dict(facecolor='white', edgecolor='white'))
+# plt.text(30,90, f"Écart type des erreurs: {np.round(std,2)}")
+plt.text(30,90, f"RMSE: {np.round(rmse,2)}", fontsize=18,bbox=dict(facecolor='white', edgecolor='white'))
+plt.plot(y_true, intercept + (np.array(y_true) * slope), color='black')
+plt.xticks([17,30,40,50,60,70,80,90,100], fontsize=18)
+plt.yticks([17,30,40,50,60,70,80,90,100],fontsize=18)
+ax.set_aspect('equal', adjustable='box')
+
 # plt.xticks(np.arange(min(y_true), max(y_true)+1, 0.5))
 # plt.xlim(1.7,10.0)
+
 plt.show()

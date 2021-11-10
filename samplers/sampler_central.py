@@ -1,4 +1,7 @@
 # https://glenbambrick.com/2017/09/15/osgp-create-points-along-line/
+"""
+Ce script crée des points de chaque côté des cours d'eau du secteur central. Deux shp distincts sont utilisés pour ce secteur, un pour chacune des rives.
+"""
 
 from osgeo import ogr
 from shapely.geometry import LineString, Point
@@ -59,18 +62,16 @@ input_lyr = ds.GetLayer()
 input_lyr2 = ds2.GetLayer()
 
 ## distance between each points
-# pour les dernières tuiles 50x50
 distance = 21
 # distance = 15
 ## distance from wich the parallel lines will be created
-# pour les dernières tuiles 50x50
-# distance_paral = 10
 distance_paral = 10
 
+
 ## output point fc name
-output_paral = r"D:/deep_learning/samples/sampling/central/{}_parall_{}m".format(os.path.basename(shp_gauche[:-4]), distance_paral)
+output_paral = r"K:/deep_learning/sampling/centre/{}_parall_{}m".format(os.path.basename(shp_gauche[:-4]), distance_paral)
 ## output point fc name
-output_pts = r"D:/deep_learning/samples/sampling/central/{}_{}m_points".format(os.path.basename(shp_gauche[:-4]), distance)
+output_pts = r"K:/deep_learning/sampling/centre/{}_2m_{}m_points".format(os.path.basename(shp_gauche[:-4]), distance)
 
 ################################################################################
 

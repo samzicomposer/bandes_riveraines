@@ -42,7 +42,7 @@ def calculateAngle(point1, point2):
 driver = ogr.GetDriverByName('ESRI Shapefile')
 ################################################################################
 ## path to the
-shp_droite = r"D:/deep_learning/samples/sampling/manual_br/br_tests.shp"
+shp_droite = r"K:/deep_learning/sampling/shapes/occ_sol_test.shp"
 
 dirname = os.path.dirname(shp_droite)
 ## open the GDB in write mode (1)
@@ -58,9 +58,9 @@ distance = 21
 distance_paral = 0
 
 ## output point fc name
-output_paral = r"D:/deep_learning/samples/sampling/manual_br/{}_parall_{}m".format(os.path.basename(shp_droite[:-4]), distance_paral)
+output_paral = r"K:/deep_learning/samples//manual_br/{}_parall_{}m".format(os.path.basename(shp_droite[:-4]), distance_paral)
 ## output point fc name
-output_pts = r"D:/deep_learning/samples/sampling/manual_br/{}_{}m_points".format(os.path.basename(shp_droite[:-4]), distance)
+output_pts = r"K:/deep_learning/sampling/shapes/occ_sol_test/{}_{}m_points".format(os.path.basename(shp_droite[:-4]), distance)
 
 ################################################################################
 
@@ -115,7 +115,7 @@ for ln in tqdm(pairlist):
 
         shapely_line1 = wkt.loads(line_geom_side1)
         paral_right = shapely_line1.parallel_offset(distance_paral, 'right', join_style=2)
-        linestring_list.append({'geom': paral_right, 'fid': ln[0].GetField('id'), 'type': ln[0].GetField('type')})
+        linestring_list.append({'geom': paral_right, 'fid': ln[0].GetField('id'), 'type': ln[0].GetField('classe')})
 
     except:
         pass

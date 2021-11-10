@@ -1,5 +1,12 @@
 # https://glenbambrick.com/2017/09/15/osgp-create-points-along-line/
+"""
+Ce script crée des points de chaque côté des cours d'eau du secteur Nord. Le shp à partir duquel il travaille
+ne contient qu'un vecteur par cours d'eau, la valeur d'IQBR des rives gauche et droite est dans la table d'attributs.
 
+Les rives gauche et droite ont été déterminées en fonction du sens de l'écoulement de l'eau (disponible dans les données hydrographiques gouvernementales).
+Chaque cours d'eau a été vérifié manuellement et l'attribut true_dir indique s'il faut inverser la droite et la gauche. Ce script en dépend.
+
+"""
 from osgeo import ogr
 from shapely.geometry import LineString, Point
 from shapely import wkt, ops
@@ -54,18 +61,16 @@ ds = driver.Open(shp_droite, 0)
 input_lyr = ds.GetLayer()
 
 ## distance between each points
-# pour les dernières tuiles 50x50
 distance = 21
 # distance = 15
 ## distance from wich the parallel lines will be created
-# pour les dernières tuiles 50x50
-# distance_paral = 10
+
 distance_paral = 10
 
 ## output point fc name
-output_paral = r"D:/deep_learning/samples/sampling/nord/{}_parall_{}m".format(os.path.basename(shp_droite[:-4]), distance_paral)
+output_paral = r"K:/deep_learning/sampling/nord/{}_parall_{}m".format(os.path.basename(shp_droite[:-4]), distance_paral)
 ## output point fc name
-output_pts = r"D:/deep_learning/samples/sampling/nord/{}_{}m_points".format(os.path.basename(shp_droite[:-4]), distance)
+output_pts = r"K:/deep_learning/sampling/nord/{}_2m_{}m_points".format(os.path.basename(shp_droite[:-4]), distance)
 
 ################################################################################
 
